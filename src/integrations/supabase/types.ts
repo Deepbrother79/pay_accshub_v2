@@ -14,7 +14,107 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      payment_history: {
+        Row: {
+          amount_crypto: number | null
+          amount_usd: number | null
+          created_at: string
+          currency: string | null
+          id: string
+          invoice_id: string | null
+          raw: Json | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          amount_crypto?: number | null
+          amount_usd?: number | null
+          created_at?: string
+          currency?: string | null
+          id?: string
+          invoice_id?: string | null
+          raw?: Json | null
+          status: string
+          user_id: string
+        }
+        Update: {
+          amount_crypto?: number | null
+          amount_usd?: number | null
+          created_at?: string
+          currency?: string | null
+          id?: string
+          invoice_id?: string | null
+          raw?: Json | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      products: {
+        Row: {
+          created_at: string
+          name: string
+          product_id: string
+          value_credits_usd: number
+        }
+        Insert: {
+          created_at?: string
+          name: string
+          product_id: string
+          value_credits_usd: number
+        }
+        Update: {
+          created_at?: string
+          name?: string
+          product_id?: string
+          value_credits_usd?: number
+        }
+        Relationships: []
+      }
+      transactions: {
+        Row: {
+          created_at: string
+          credits: number
+          id: string
+          product_id: string | null
+          token_string: string
+          token_type: string
+          usd_spent: number
+          user_id: string
+          value_credits_usd_label: string | null
+        }
+        Insert: {
+          created_at?: string
+          credits: number
+          id?: string
+          product_id?: string | null
+          token_string: string
+          token_type: string
+          usd_spent: number
+          user_id: string
+          value_credits_usd_label?: string | null
+        }
+        Update: {
+          created_at?: string
+          credits?: number
+          id?: string
+          product_id?: string | null
+          token_string?: string
+          token_type?: string
+          usd_spent?: number
+          user_id?: string
+          value_credits_usd_label?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["product_id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

@@ -1,1 +1,7 @@
 project_id = "raqwrslwuefyikijlbma"
+
+[functions.nowpayments-ipn]
+verify_jwt = false
+
+[functions.create-invoice]
+verify_jwt = true
