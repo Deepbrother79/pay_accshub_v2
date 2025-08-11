@@ -53,13 +53,16 @@ Deno.serve(async (req: Request) => {
     }
 
     const body = JSON.parse(rawBody)
-    const payment_id = String(body.payment_id ?? body.id ?? '')
+    const invoice_id = String(body.invoice_id ?? body.id ?? '')
+    const payment_id = String(body.payment_id ?? '')
     const payment_status = String(body.payment_status ?? '')
     const order_id = String(body.order_id ?? '')
     const price_amount = Number(body.price_amount ?? body.order_amount ?? null)
-    const price_currency = String(body.price_currency ?? 'USD')
+    const price_currency = String(body.price_currency ?? body.currency ?? 'USD')
+    const price_currency_norm = price_currency.toUpperCase()
     const actually_paid = Number(body.actually_paid ?? body.pay_amount ?? null)
     const pay_currency = String(body.pay_currency ?? body.currency ?? '')
+    const pay_currency_norm = pay_currency ? pay_currency.toLowerCase() : ''
 
     // Use service role to bypass RLS for webhook updates
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY ?? '')
@@ -68,7 +71,7 @@ Deno.serve(async (req: Request) => {
     const { data: existing } = await supabase
       .from('payment_history')
       .select('id')
-      .eq('invoice_id', payment_id)
+      .eq('invoice_id', invoice_id)
       .maybeSingle()
 
     if (existing) {
@@ -76,9 +79,9 @@ Deno.serve(async (req: Request) => {
         .from('payment_history')
         .update({
           status: payment_status,
-          amount_usd: price_currency === 'USD' ? price_amount : null,
+          amount_usd: price_currency_norm === 'USD' ? price_amount : null,
           amount_crypto: actually_paid,
-          currency: pay_currency || price_currency,
+          currency: pay_currency_norm || price_currency_norm,
           raw: body,
         })
         .eq('id', existing.id)
@@ -86,11 +89,11 @@ Deno.serve(async (req: Request) => {
       // Fallback insert (ensure order_id is the user_id we set when creating invoice)
       await supabase.from('payment_history').insert({
         user_id: order_id || null,
-        invoice_id: payment_id,
+        invoice_id: invoice_id || payment_id || null,
         status: payment_status,
-        amount_usd: price_currency === 'USD' ? price_amount : null,
+        amount_usd: price_currency_norm === 'USD' ? price_amount : null,
         amount_crypto: actually_paid,
-        currency: pay_currency || price_currency,
+        currency: pay_currency_norm || price_currency_norm,
         raw: body,
       })
     }
