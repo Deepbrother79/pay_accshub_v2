@@ -30,11 +30,12 @@ Deno.serve(async (req: Request) => {
   try {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
     const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-    const IPN_SECRET = Deno.env.get('NOWPAYMENTS_IPN_SECRET')
+    // Support your configured secret name
+    const IPN_SECRET = Deno.env.get('NOWPAYMENT_IPN') || Deno.env.get('NOWPAYMENTS_IPN_SECRET')
 
     if (!IPN_SECRET) {
       return new Response(
-        JSON.stringify({ error: 'NOWPAYMENTS_IPN_SECRET is not set. Add it in Functions Secrets.' }),
+        JSON.stringify({ error: 'NOWPAYMENT_IPN is not set in Function Secrets.' }),
         { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
       )
     }

@@ -14,11 +14,15 @@ Deno.serve(async (req: Request) => {
   try {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
     const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
-    const NOWPAYMENTS_API_KEY = Deno.env.get('NOWPAYMENTS_API_KEY')
+    // Support both private and public key names you configured
+    const NOWPAYMENTS_API_KEY =
+      Deno.env.get('NOWPAYMENT_Apikey') ||
+      Deno.env.get('NOWPAYMENTS_API_KEY') ||
+      Deno.env.get('NOWPAYMENT_Public_Apikey')
 
     if (!NOWPAYMENTS_API_KEY) {
       return new Response(
-        JSON.stringify({ error: 'NOWPAYMENTS_API_KEY is not set. Add it in Functions Secrets.' }),
+        JSON.stringify({ error: 'NOWPAYMENT_Apikey (or NOWPAYMENTS_API_KEY) is not set in Function Secrets.' }),
         { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
       )
     }
@@ -41,8 +45,8 @@ Deno.serve(async (req: Request) => {
 
     const { amount_usd } = await req.json().catch(() => ({}))
     const amount = Number(amount_usd)
-    if (!amount || amount <= 0) {
-      return new Response(JSON.stringify({ error: 'Invalid amount_usd' }), {
+    if (!amount || amount < 1) {
+      return new Response(JSON.stringify({ error: 'amount_usd must be at least 1' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
@@ -61,7 +65,7 @@ Deno.serve(async (req: Request) => {
         price_currency: 'USD',
         order_id: user.id,
         ipn_callback_url: ipnUrl,
-        // success_url / cancel_url can be handled client-side after payment
+        is_fee_paid_by_user: true,
       }),
     })
 

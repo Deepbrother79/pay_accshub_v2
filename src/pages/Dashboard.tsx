@@ -86,12 +86,12 @@ const Dashboard = () => {
   const balanceUsd = useMemo(() => Math.max(0, confirmedUsd - spentUsd), [confirmedUsd, spentUsd]);
 
   const handleTopup = async () => {
-    const amt = Number(topup);
-    if (!amt || amt <= 0) return toast({ title: 'Enter a valid amount' });
-    const { data, error } = await supabase.functions.invoke('create-invoice', { body: { amount_usd: amt } });
-    if (error) return toast({ title: 'Failed to start payment', description: error.message });
-    if (data?.payment_url) window.open(data.payment_url, '_blank');
-    else toast({ title: 'Invoice created', description: 'Complete payment to add funds.' });
+  const amt = Number(topup);
+  if (!amt || amt < 1) return toast({ title: 'Minimum top-up is $1' });
+  const { data, error } = await supabase.functions.invoke('create-invoice', { body: { amount_usd: amt } });
+  if (error) return toast({ title: 'Failed to start payment', description: error.message });
+  if (data?.payment_url) window.open(data.payment_url, '_blank');
+  else toast({ title: 'Invoice created', description: 'Complete payment to add funds.' });
   };
 
   const handleGenerate = async () => {
@@ -166,7 +166,7 @@ const Dashboard = () => {
             <h2 className="text-xl font-semibold">Top up balance (USD)</h2>
             <div className="flex gap-2">
               <Input placeholder="Amount in USD" value={topup} onChange={(e) => setTopup(e.target.value)} />
-              <Button onClick={handleTopup}>Create Invoice</Button>
+              <Button onClick={handleTopup}>Reload Balance</Button>
             </div>
             <p className="text-xs text-muted-foreground">Payments are processed via NowPayments. After completion, your balance updates automatically.</p>
           </article>
