@@ -14,6 +14,7 @@ Deno.serve(async (req: Request) => {
   try {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
     const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
+    
     // Support both private and public key names you configured
     const NOWPAYMENTS_API_KEY =
       Deno.env.get('NOWPAYMENT_Apikey') ||
@@ -45,6 +46,7 @@ Deno.serve(async (req: Request) => {
 
     const { amount_usd } = await req.json().catch(() => ({}))
     const amount = Number(amount_usd)
+
     if (!amount || amount < 1) {
       return new Response(JSON.stringify({ error: 'amount_usd must be at least 1' }), {
         status: 400,
@@ -65,7 +67,8 @@ Deno.serve(async (req: Request) => {
         price_currency: 'USD',
         order_id: user.id,
         ipn_callback_url: ipnUrl,
-        is_fee_paid_by_user: true,
+        is_fixed_rate: false,
+        is_fee_paid_by_user: false,
       }),
     })
 
