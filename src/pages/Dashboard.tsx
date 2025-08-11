@@ -64,7 +64,16 @@ const Dashboard = () => {
         .select('id,token_type,token_string,credits,usd_spent,product_id,created_at')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
-      setTxs(t || []);
+      const normalizedTxs = (t || []).map((row: any) => ({
+        id: row.id,
+        token_type: row.token_type === 'master' ? 'master' : 'product',
+        token_string: row.token_string,
+        credits: row.credits,
+        usd_spent: row.usd_spent,
+        product_id: row.product_id ?? null,
+        created_at: row.created_at,
+      })) as Tx[];
+      setTxs(normalizedTxs);
     })();
   }, [userId]);
 
@@ -124,12 +133,21 @@ const Dashboard = () => {
     toast({ title: 'Token generated', description: token });
     setUsd(''); setPrefixInput('');
     // refresh lists
-    const { data: t } = await supabase
-      .from('transactions')
-      .select('id,token_type,token_string,credits,usd_spent,product_id,created_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-    setTxs(t || []);
+      const { data: t } = await supabase
+        .from('transactions')
+        .select('id,token_type,token_string,credits,usd_spent,product_id,created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      const normalized = (t || []).map((row: any) => ({
+        id: row.id,
+        token_type: row.token_type === 'master' ? 'master' : 'product',
+        token_string: row.token_string,
+        credits: row.credits,
+        usd_spent: row.usd_spent,
+        product_id: row.product_id ?? null,
+        created_at: row.created_at,
+      })) as Tx[];
+      setTxs(normalized);
   };
 
   return (
