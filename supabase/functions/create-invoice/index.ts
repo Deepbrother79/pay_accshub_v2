@@ -54,7 +54,7 @@ Deno.serve(async (req: Request) => {
 
     const ipnUrl = `${SUPABASE_URL}/functions/v1/nowpayments-ipn`
 
-    const npRes = await fetch('https://api.nowpayments.io/v1/payment', {
+    const npRes = await fetch('https://api.nowpayments.io/v1/invoice', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
