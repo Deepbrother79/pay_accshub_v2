@@ -92,14 +92,57 @@ export type Database = {
         }
         Relationships: []
       }
-      transactions: {
+      tokens: {
         Row: {
+          batch_tx_id: string
           created_at: string
           credits: number
           id: string
           product_id: string | null
           token_string: string
+          user_id: string
+        }
+        Insert: {
+          batch_tx_id: string
+          created_at?: string
+          credits: number
+          id?: string
+          product_id?: string | null
+          token_string: string
+          user_id: string
+        }
+        Update: {
+          batch_tx_id?: string
+          created_at?: string
+          credits?: number
+          id?: string
+          product_id?: string | null
+          token_string?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tokens_batch_tx_id_fkey"
+            columns: ["batch_tx_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transactions: {
+        Row: {
+          created_at: string
+          credits: number
+          credits_per_token: number
+          fee_usd: number | null
+          id: string
+          mode: string | null
+          product_id: string | null
+          token_count: number
+          token_string: string
           token_type: string
+          total_credits: number
           usd_spent: number
           user_id: string
           value_credits_usd_label: string | null
@@ -107,10 +150,15 @@ export type Database = {
         Insert: {
           created_at?: string
           credits: number
+          credits_per_token?: number
+          fee_usd?: number | null
           id?: string
+          mode?: string | null
           product_id?: string | null
+          token_count?: number
           token_string: string
           token_type: string
+          total_credits?: number
           usd_spent: number
           user_id: string
           value_credits_usd_label?: string | null
@@ -118,10 +166,15 @@ export type Database = {
         Update: {
           created_at?: string
           credits?: number
+          credits_per_token?: number
+          fee_usd?: number | null
           id?: string
+          mode?: string | null
           product_id?: string | null
+          token_count?: number
           token_string?: string
           token_type?: string
+          total_credits?: number
           usd_spent?: number
           user_id?: string
           value_credits_usd_label?: string | null
