@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 type Product = { product_id: string; name: string; value_credits_usd: number };
 
-type Payment = { id: string; status: string; amount_usd: number | null; created_at: string };
+type Payment = { id: string; status: string; amount_usd: number | null; created_at: string; currency?: string; pay_currency?: string };
 
 type Tx = { 
   id: string; 
@@ -68,7 +68,7 @@ const Dashboard = () => {
     (async () => {
       const { data: pays } = await supabase
         .from('payment_history')
-        .select('id,status,amount_usd,created_at')
+        .select('id,status,amount_usd,created_at,currency,pay_currency')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
       setPayments(pays || []);
@@ -141,90 +141,52 @@ const Dashboard = () => {
       return toast({ title: 'Invalid prefix', description: 'Max 4 alphanumeric chars' });
     }
 
-    let creditsPerToken = 0;
-    let totalCredits = 0;
-    let valueLabel: string | null = null;
-
-    if (type === 'product') {
-      const prod = products.find(p => p.product_id === productId);
-      if (!prod) return toast({ title: 'Select a product' });
-      
-      if (mode === 'usd') {
-        const usdPerToken = parseFloat(usd) || 0;
-        creditsPerToken = Math.floor(usdPerToken / Number(prod.value_credits_usd));
-      } else {
-        creditsPerToken = parseInt(credits) || 0;
-      }
-      
-      totalCredits = creditsPerToken * count;
-      valueLabel = String(prod.value_credits_usd);
-    } else {
-      const usdAmt = parseFloat(usd) || 0;
-      creditsPerToken = usdAmt;
-      totalCredits = creditsPerToken * count;
-      valueLabel = 'USD';
-    }
-
-    // Create transaction record
-    const { data: txData, error: txError } = await supabase.from('transactions').insert({
-      user_id: userId,
-      product_id: type === 'product' ? productId : null,
-      token_type: type,
-      token_string: `BATCH-${count}tokens-${randString(10)}`,
-      credits: totalCredits,
-      usd_spent: totalCost,
-      value_credits_usd_label: valueLabel,
-      token_count: count,
-      mode: type === 'product' ? mode : 'usd',
-      fee_usd: 0.0001,
-      credits_per_token: creditsPerToken,
-      total_credits: totalCredits,
-    }).select().single();
-
-    if (txError) return toast({ title: 'Failed to create transaction', description: txError.message });
-
-    // Generate individual tokens
-    const tokens = [];
-    for (let i = 0; i < count; i++) {
-      const tokenString = type === 'product' 
-        ? `${prefix}-${creditsPerToken}-${randString(15)}`
-        : `${prefix}-${creditsPerToken}USD-${randString(15)}`;
-      
-      tokens.push({
-        batch_tx_id: txData.id,
-        user_id: userId,
-        product_id: type === 'product' ? productId : null,
-        token_string: tokenString,
-        credits: creditsPerToken,
+    try {
+      // Call edge function to generate tokens securely
+      const { data, error } = await supabase.functions.invoke('generate-tokens', {
+        body: {
+          type,
+          productId,
+          usd,
+          credits,
+          mode,
+          tokenCount: count,
+          prefixMode,
+          prefixInput: prefix,
+          totalCost
+        }
       });
+
+      if (error) throw error;
+      if (data.error) throw new Error(data.error);
+
+      toast({ title: 'Success', description: data.message });
+      
+      // Reset form
+      setUsd(''); setCredits(''); setPrefixInput(''); setTokenCount('1');
+      
+      // Refresh data
+      const { data: t } = await supabase
+        .from('transactions')
+        .select('id,token_type,token_string,credits,usd_spent,product_id,created_at,token_count,mode')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      const normalized = (t || []).map((row: any) => ({
+        id: row.id,
+        token_type: row.token_type === 'master' ? 'master' : 'product',
+        token_string: row.token_string,
+        credits: row.credits,
+        usd_spent: row.usd_spent,
+        product_id: row.product_id ?? null,
+        created_at: row.created_at,
+        token_count: row.token_count,
+        mode: row.mode,
+      })) as Tx[];
+      setTxs(normalized);
+
+    } catch (error: any) {
+      toast({ title: 'Failed to generate tokens', description: error.message });
     }
-
-    const { error: tokensError } = await supabase.from('tokens').insert(tokens);
-    if (tokensError) return toast({ title: 'Failed to generate tokens', description: tokensError.message });
-
-    toast({ title: 'Tokens generated successfully', description: `${count} tokens created` });
-    
-    // Reset form
-    setUsd(''); setCredits(''); setPrefixInput(''); setTokenCount('1');
-    
-    // Refresh data
-    const { data: t } = await supabase
-      .from('transactions')
-      .select('id,token_type,token_string,credits,usd_spent,product_id,created_at,token_count,mode')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-    const normalized = (t || []).map((row: any) => ({
-      id: row.id,
-      token_type: row.token_type === 'master' ? 'master' : 'product',
-      token_string: row.token_string,
-      credits: row.credits,
-      usd_spent: row.usd_spent,
-      product_id: row.product_id ?? null,
-      created_at: row.created_at,
-      token_count: row.token_count,
-      mode: row.mode,
-    })) as Tx[];
-    setTxs(normalized);
   };
 
   const exportTokens = async (batchTxId?: string) => {
@@ -386,11 +348,6 @@ const Dashboard = () => {
 
             <Button className="w-full" onClick={handleGenerate}>Generate Tokens</Button>
             
-            <div className="space-y-2">
-              <Button variant="outline" className="w-full" onClick={() => exportTokens()}>
-                Export All Tokens
-              </Button>
-            </div>
             
             <p className="text-xs text-muted-foreground">
               Format: prefix-credits-random15. Master tokens use USD instead of credits count. 
@@ -404,10 +361,17 @@ const Dashboard = () => {
             <h3 className="text-lg font-semibold mb-3">Payments History</h3>
             <div className="space-y-2 max-h-[300px] overflow-auto">
               {payments.map(p => (
-                <div key={p.id} className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">{new Date(p.created_at).toLocaleString()}</span>
-                  <span>{(p.amount_usd ?? 0).toFixed(2)} USD</span>
-                  <span className="font-medium">{p.status}</span>
+                <div key={p.id} className="text-sm border-b pb-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">{new Date(p.created_at).toLocaleString()}</span>
+                    <span>{(p.amount_usd ?? 0).toFixed(2)} {p.currency || 'USD'}</span>
+                    <span className="font-medium">{p.status}</span>
+                  </div>
+                  {p.pay_currency && (
+                    <div className="text-xs text-muted-foreground">
+                      Pay currency: {p.pay_currency}
+                    </div>
+                  )}
                 </div>
               ))}
               {payments.length === 0 && <p className="text-sm text-muted-foreground">No payments yet.</p>}
@@ -415,7 +379,12 @@ const Dashboard = () => {
           </article>
 
           <article className="border rounded-lg p-4">
-            <h3 className="text-lg font-semibold mb-3">Transactions</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold">Transactions</h3>
+              <Button variant="outline" size="sm" onClick={() => exportTokens()}>
+                Export All
+              </Button>
+            </div>
             <div className="space-y-2 max-h-[300px] overflow-auto">
               {txs.map(t => (
                 <div key={t.id} className="text-sm border-b pb-2">

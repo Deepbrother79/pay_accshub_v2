@@ -67,33 +67,36 @@ Deno.serve(async (req: Request) => {
     // Use service role to bypass RLS for webhook updates
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY ?? '')
 
-    // Try update existing row, if not found insert
+    // Check if payment record already exists by order_id to prevent duplicates
     const { data: existing } = await supabase
       .from('payment_history')
       .select('id')
-      .eq('invoice_id', invoice_id)
+      .eq('order_id', order_id)
       .maybeSingle()
 
     if (existing) {
+      // Update existing payment record
       await supabase
         .from('payment_history')
         .update({
           status: payment_status,
           amount_usd: price_currency_norm === 'USD' ? price_amount : null,
           amount_crypto: actually_paid,
-          currency: pay_currency_norm || price_currency_norm,
+          currency: price_currency_norm, // price_currency for main currency
+          pay_currency: pay_currency_norm, // pay_currency for crypto used
           raw: body,
         })
         .eq('id', existing.id)
     } else {
-      // Fallback insert (ensure order_id is the user_id we set when creating invoice)
+      // Create new payment record using order_id as unique identifier
       await supabase.from('payment_history').insert({
         user_id: order_id || null,
-        invoice_id: invoice_id || payment_id || null,
+        order_id: order_id,
         status: payment_status,
         amount_usd: price_currency_norm === 'USD' ? price_amount : null,
         amount_crypto: actually_paid,
-        currency: pay_currency_norm || price_currency_norm,
+        currency: price_currency_norm, // price_currency for main currency
+        pay_currency: pay_currency_norm, // pay_currency for crypto used
         raw: body,
       })
     }
