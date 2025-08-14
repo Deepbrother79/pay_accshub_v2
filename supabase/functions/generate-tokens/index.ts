@@ -49,6 +49,42 @@ Deno.serve(async (req) => {
 
     console.log('Token generation request:', { type, productId, tokenCount, mode, totalCost })
 
+    // Validazione campi obbligatori
+    if (type === 'product') {
+      if (!productId) {
+        return new Response(JSON.stringify({ error: 'Product ID is required for product tokens' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+      
+      if (mode === 'usd') {
+        const usdValue = parseFloat(usd);
+        if (!usd || isNaN(usdValue) || usdValue < 1) {
+          return new Response(JSON.stringify({ error: 'USD per Token is required and must be at least 1' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+      } else if (mode === 'credits') {
+        const creditsValue = parseInt(credits);
+        if (!credits || isNaN(creditsValue) || creditsValue < 1) {
+          return new Response(JSON.stringify({ error: 'Credits per Token is required and must be at least 1' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+      }
+    } else if (type === 'master') {
+      const usdValue = parseFloat(usd);
+      if (!usd || isNaN(usdValue) || usdValue < 1) {
+        return new Response(JSON.stringify({ error: 'USD per Token is required and must be at least 1' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+    }
+
     // Verify user balance
     const { data: payments } = await supabase
       .from('payment_history')

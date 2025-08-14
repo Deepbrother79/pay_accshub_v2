@@ -63,6 +63,14 @@ const Dashboard = () => {
     })();
   }, []);
 
+  // Reset fields when token type changes
+  useEffect(() => {
+    setUsd('');
+    setCredits('');
+    setProductId('');
+    setMode('usd');
+  }, [type]);
+
   useEffect(() => {
     if (!userId) return;
     (async () => {
@@ -101,22 +109,30 @@ const Dashboard = () => {
 
   // Calculate total cost for token generation
   const totalCost = useMemo(() => {
-    if (type !== 'product' || !productId) return 0;
-    
-    const prod = products.find(p => p.product_id === productId);
-    if (!prod) return 0;
-    
     const count = parseInt(tokenCount) || 1;
     const standardFee = 0.0001; // Fixed fee per generation request
     
-    if (mode === 'usd') {
+    if (type === 'product') {
+      if (!productId) return 0;
+      
+      const prod = products.find(p => p.product_id === productId);
+      if (!prod) return 0;
+      
+      if (mode === 'usd') {
+        const usdAmt = parseFloat(usd) || 0;
+        return (usdAmt * count) + standardFee;
+      } else {
+        const creditsAmt = parseInt(credits) || 0;
+        const usdPerCredit = Number(prod.value_credits_usd);
+        return (creditsAmt * usdPerCredit * count) + standardFee;
+      }
+    } else if (type === 'master') {
+      // Master Token: costo diretto in USD
       const usdAmt = parseFloat(usd) || 0;
       return (usdAmt * count) + standardFee;
-    } else {
-      const creditsAmt = parseInt(credits) || 0;
-      const usdPerCredit = Number(prod.value_credits_usd);
-      return (creditsAmt * usdPerCredit * count) + standardFee;
     }
+    
+    return 0;
   }, [type, productId, products, tokenCount, mode, usd, credits]);
 
   const handleTopup = async () => {
@@ -134,7 +150,36 @@ const Dashboard = () => {
     
     if (type === 'product' && !productId) return toast({ title: 'Select a product' });
     
-    if (totalCost > balanceUsd) return toast({ title: 'Insufficient balance' });
+    // Validazione campi obbligatori per Product Token
+    if (type === 'product') {
+      if (mode === 'usd') {
+        const usdValue = parseFloat(usd);
+        if (!usd || isNaN(usdValue) || usdValue < 1) {
+          return toast({ title: 'USD per Token is required and must be at least 1' });
+        }
+      } else if (mode === 'credits') {
+        const creditsValue = parseInt(credits);
+        if (!credits || isNaN(creditsValue) || creditsValue < 1) {
+          return toast({ title: 'Credits per Token is required and must be at least 1' });
+        }
+      }
+    }
+    
+    // Validazione campi obbligatori per Master Token
+    if (type === 'master') {
+      const usdValue = parseFloat(usd);
+      if (!usd || isNaN(usdValue) || usdValue < 1) {
+        return toast({ title: 'USD per Token is required and must be at least 1' });
+      }
+    }
+    
+    // Ricalcola il costo totale per assicurarsi che sia aggiornato
+    const currentTotalCost = totalCost;
+    if (currentTotalCost <= 0) {
+      return toast({ title: 'Invalid cost calculation', description: 'Please check your input values' });
+    }
+    
+    if (currentTotalCost > balanceUsd) return toast({ title: 'Insufficient balance' });
     
     let prefix = prefixMode === 'auto' ? randString(4) : prefixInput.trim();
     if (prefixMode === 'custom' && (!/^[A-Za-z0-9]{1,4}$/.test(prefix))) {
@@ -153,7 +198,7 @@ const Dashboard = () => {
           tokenCount: count,
           prefixMode,
           prefixInput: prefix,
-          totalCost
+          totalCost: currentTotalCost
         }
       });
 
@@ -204,18 +249,30 @@ const Dashboard = () => {
       
       if (error) throw error;
       
+      if (!data || data.length === 0) {
+        return toast({ title: 'No tokens found to export' });
+      }
+      
       const tokenList = data.map(t => t.token_string).join('\n');
+      const fileName = batchTxId 
+        ? `tokens-batch-${batchTxId}.txt`
+        : `tokens-${new Date().toISOString().split('T')[0]}.txt`;
+      
       const blob = new Blob([tokenList], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `tokens-${new Date().toISOString().split('T')[0]}.txt`;
+      a.download = fileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       
-      toast({ title: 'Tokens exported successfully' });
+      const tokenCount = data.length;
+      toast({ 
+        title: 'Tokens exported successfully', 
+        description: `${tokenCount} token${tokenCount > 1 ? 's' : ''} exported to ${fileName}` 
+      });
     } catch (error: any) {
       toast({ title: 'Export failed', description: error.message });
     }
@@ -227,6 +284,14 @@ const Dashboard = () => {
         <header className="flex items-center justify-between">
           <h1 className="text-3xl font-bold">User Dashboard</h1>
           <div className="flex items-center gap-3">
+            <Button 
+              variant="default" 
+              size="lg"
+              onClick={() => window.open('https://token-transaction-hub.vercel.app/', '_blank')}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2"
+            >
+              HUB API
+            </Button>
             <span className="text-sm text-muted-foreground">Balance: ${balanceUsd.toFixed(4)} USD</span>
             <Button variant="outline" onClick={async () => { await supabase.auth.signOut(); window.location.replace('/'); }}>Logout</Button>
           </div>
@@ -244,6 +309,7 @@ const Dashboard = () => {
 
           <article className="border rounded-lg p-4 space-y-3">
             <h2 className="text-xl font-semibold">Generate Token</h2>
+            <p className="text-xs text-muted-foreground">Fields marked with * are required. USD and Credits values must be at least 1.</p>
             <div className="flex gap-2">
               <Button variant={type==='product'? 'default':'outline'} onClick={()=>setType('product')}>Product</Button>
               <Button variant={type==='master'? 'default':'outline'} onClick={()=>setType('master')}>Master</Button>
@@ -299,19 +365,29 @@ const Dashboard = () => {
 
                 {mode === 'usd' && (
                   <div className="space-y-2">
-                    <label className="text-sm">USD per Token</label>
-                    <Input placeholder="e.g. 1.2000" value={usd} onChange={(e)=>setUsd(e.target.value)} />
+                    <label className="text-sm">USD per Token *</label>
+                    <Input 
+                      type="number" 
+                      min="1" 
+                      step="0.0001"
+                      placeholder="e.g. 1.2000" 
+                      value={usd} 
+                      onChange={(e)=>setUsd(e.target.value)} 
+                      required
+                    />
                   </div>
                 )}
 
                 {mode === 'credits' && (
                   <div className="space-y-2">
-                    <label className="text-sm">Credits per Token</label>
+                    <label className="text-sm">Credits per Token *</label>
                     <Input 
                       type="number" 
+                      min="1"
                       placeholder="e.g. 1000" 
                       value={credits} 
                       onChange={(e)=>setCredits(e.target.value)} 
+                      required
                     />
                   </div>
                 )}
@@ -330,8 +406,26 @@ const Dashboard = () => {
 
             {type === 'master' && (
               <div className="space-y-2">
-                <label className="text-sm">USD per Token</label>
-                <Input placeholder="e.g. 10" value={usd} onChange={(e)=>setUsd(e.target.value)} />
+                <label className="text-sm">USD per Token *</label>
+                <Input 
+                  type="number" 
+                  min="1" 
+                  step="0.0001"
+                  placeholder="e.g. 10" 
+                  value={usd} 
+                  onChange={(e)=>setUsd(e.target.value)} 
+                  required
+                />
+                
+                {totalCost > 0 && (
+                  <div className="p-3 bg-muted rounded-md space-y-1">
+                    <p className="text-sm font-medium">Cost Summary:</p>
+                    <p className="text-xs">Tokens: {tokenCount}</p>
+                    <p className="text-xs">USD per token: {usd}</p>
+                    <p className="text-xs">Standard fee: $0.0001</p>
+                    <p className="text-sm font-semibold">Total cost: ${totalCost.toFixed(4)} USD</p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -380,7 +474,7 @@ const Dashboard = () => {
 
           <article className="border rounded-lg p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold">Transactions</h3>
+              <h3 className="text-lg font-semibold">Transactions ID</h3>
               <Button variant="outline" size="sm" onClick={() => exportTokens()}>
                 Export All
               </Button>
@@ -394,19 +488,17 @@ const Dashboard = () => {
                     <span>${t.usd_spent.toFixed(4)}</span>
                   </div>
                   <div className="truncate">{t.token_string}</div>
-                  {t.token_count && t.token_count > 1 && (
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{t.token_count} tokens • {t.mode} mode</span>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => exportTokens(t.id)}
-                        className="h-6 px-2 text-xs"
-                      >
-                        Export
-                      </Button>
-                    </div>
-                  )}
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{t.token_count || 1} tokens • {t.mode || 'usd'} mode</span>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => exportTokens(t.id)}
+                      className="h-6 px-2 text-xs"
+                    >
+                      Export
+                    </Button>
+                  </div>
                 </div>
               ))}
               {txs.length === 0 && <p className="text-sm text-muted-foreground">No transactions yet.</p>}
