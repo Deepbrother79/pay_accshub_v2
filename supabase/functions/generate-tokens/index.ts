@@ -1,146 +1,201 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
-
-const randString = (len = 15) => {
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
+};
+const randString = (len = 15)=>{
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let s = '';
-  for (let i = 0; i < len; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+  for(let i = 0; i < len; i++)s += chars.charAt(Math.floor(Math.random() * chars.length));
   return s;
 };
-
-Deno.serve(async (req) => {
+// Funzione helper per inviare i token alla table esterna HUB_API
+const sendTokensToHub = async (tokens, type, productName = null)=>{
+  try {
+    const hubUrl = Deno.env.get('HUB_API_URL');
+    const hubServiceKey = Deno.env.get('HUB_API_SERVICE_ROLE_KEY');
+    if (!hubUrl || !hubServiceKey) {
+      console.error('HUB_API credentials not configured');
+      return false;
+    }
+    const hubSupabase = createClient(hubUrl, hubServiceKey);
+    if (type === 'product') {
+      // Invia alla table tokens per i token prodotto
+      const hubTokens = tokens.map((token)=>({
+          token: token.token_string,
+          product_id: token.product_id,
+          credits: token.credits,
+          name: productName,
+          Note: null
+        }));
+      const { error: hubError } = await hubSupabase.from('tokens').insert(hubTokens);
+      if (hubError) {
+        console.error('Error inserting product tokens to HUB:', hubError);
+        return false;
+      }
+      console.log(`Successfully sent ${hubTokens.length} product tokens to HUB`);
+    } else if (type === 'master') {
+      // Invia alla table tokens_master per i token master
+      const hubMasterTokens = tokens.map((token)=>({
+          token: token.token_string,
+          credits: parseFloat(token.credits).toFixed(4),
+          name: 'Master Token',
+          note: null
+        }));
+      const { error: hubError } = await hubSupabase.from('tokens_master').insert(hubMasterTokens);
+      if (hubError) {
+        console.error('Error inserting master tokens to HUB:', hubError);
+        return false;
+      }
+      console.log(`Successfully sent ${hubMasterTokens.length} master tokens to HUB`);
+    }
+    return true;
+  } catch (error) {
+    console.error('Error sending tokens to HUB:', error);
+    return false;
+  }
+};
+Deno.serve(async (req)=>{
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, {
+      headers: corsHeaders
+    });
   }
-
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
-
-    const authHeader = req.headers.get('Authorization')!
-    const token = authHeader.replace('Bearer ', '')
-    
-    const { data: { user } } = await supabase.auth.getUser(token)
+    const supabase = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
+    const authHeader = req.headers.get('Authorization');
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user } } = await supabase.auth.getUser(token);
     if (!user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      return new Response(JSON.stringify({
+        error: 'Unauthorized'
+      }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      })
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
     }
-
-    const {
+    const { type, productId, usd, credits, mode, tokenCount, prefixMode, prefixInput, totalCost } = await req.json();
+    console.log('Token generation request:', {
       type,
       productId,
-      usd,
-      credits,
-      mode,
       tokenCount,
-      prefixMode,
-      prefixInput,
+      mode,
       totalCost
-    } = await req.json()
-
-    console.log('Token generation request:', { type, productId, tokenCount, mode, totalCost })
-
+    });
     // Validazione campi obbligatori
     if (type === 'product') {
       if (!productId) {
-        return new Response(JSON.stringify({ error: 'Product ID is required for product tokens' }), {
+        return new Response(JSON.stringify({
+          error: 'Product ID is required for product tokens'
+        }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        })
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json'
+          }
+        });
       }
-      
       if (mode === 'usd') {
         const usdValue = parseFloat(usd);
         if (!usd || isNaN(usdValue) || usdValue < 1) {
-          return new Response(JSON.stringify({ error: 'USD per Token is required and must be at least 1' }), {
+          return new Response(JSON.stringify({
+            error: 'USD per Token is required and must be at least 1'
+          }), {
             status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          })
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json'
+            }
+          });
         }
       } else if (mode === 'credits') {
         const creditsValue = parseInt(credits);
         if (!credits || isNaN(creditsValue) || creditsValue < 1) {
-          return new Response(JSON.stringify({ error: 'Credits per Token is required and must be at least 1' }), {
+          return new Response(JSON.stringify({
+            error: 'Credits per Token is required and must be at least 1'
+          }), {
             status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          })
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json'
+            }
+          });
         }
       }
     } else if (type === 'master') {
       const usdValue = parseFloat(usd);
       if (!usd || isNaN(usdValue) || usdValue < 1) {
-        return new Response(JSON.stringify({ error: 'USD per Token is required and must be at least 1' }), {
+        return new Response(JSON.stringify({
+          error: 'USD per Token is required and must be at least 1'
+        }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        })
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json'
+          }
+        });
       }
     }
-
     // Verify user balance
-    const { data: payments } = await supabase
-      .from('payment_history')
-      .select('amount_usd,status')
-      .eq('user_id', user.id)
-
-    const { data: transactions } = await supabase
-      .from('transactions')
-      .select('usd_spent')
-      .eq('user_id', user.id)
-
-    const confirmedUsd = (payments || [])
-      .filter(p => ['finished','confirmed','completed','paid'].includes((p.status || '').toLowerCase()))
-      .reduce((sum, p) => sum + (p.amount_usd || 0), 0)
-    
-    const spentUsd = (transactions || []).reduce((s, t) => s + (t.usd_spent || 0), 0)
-    const balanceUsd = Math.max(0, confirmedUsd - spentUsd)
-
+    const { data: payments } = await supabase.from('payment_history').select('amount_usd,status').eq('user_id', user.id);
+    const { data: transactions } = await supabase.from('transactions').select('usd_spent').eq('user_id', user.id);
+    const confirmedUsd = (payments || []).filter((p)=>[
+        'finished',
+        'confirmed',
+        'completed',
+        'paid'
+      ].includes((p.status || '').toLowerCase())).reduce((sum, p)=>sum + (p.amount_usd || 0), 0);
+    const spentUsd = (transactions || []).reduce((s, t)=>s + (t.usd_spent || 0), 0);
+    const balanceUsd = Math.max(0, confirmedUsd - spentUsd);
     if (totalCost > balanceUsd) {
-      return new Response(JSON.stringify({ error: 'Insufficient balance' }), {
+      return new Response(JSON.stringify({
+        error: 'Insufficient balance'
+      }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      })
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
     }
-
-    let prefix = prefixMode === 'auto' ? randString(4) : prefixInput.trim()
-    let creditsPerToken = 0
-    let totalCredits = 0
-    let valueLabel: string | null = null
-
+    let prefix = prefixMode === 'auto' ? randString(4) : prefixInput.trim();
+    let creditsPerToken = 0;
+    let totalCredits = 0;
+    let valueLabel = null;
+    let productName = null; // Variabile per memorizzare il nome del prodotto
     if (type === 'product') {
-      const { data: products } = await supabase.from('products').select('*').eq('product_id', productId)
-      const prod = products?.[0]
+      const { data: products } = await supabase.from('products').select('*').eq('product_id', productId);
+      const prod = products?.[0];
       if (!prod) {
-        return new Response(JSON.stringify({ error: 'Product not found' }), {
+        return new Response(JSON.stringify({
+          error: 'Product not found'
+        }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        })
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json'
+          }
+        });
       }
-      
+      productName = prod.name; // Memorizza il nome del prodotto
       if (mode === 'usd') {
-        const usdPerToken = parseFloat(usd) || 0
-        creditsPerToken = Math.floor(usdPerToken / Number(prod.value_credits_usd))
+        const usdPerToken = parseFloat(usd) || 0;
+        creditsPerToken = Math.floor(usdPerToken / Number(prod.value_credits_usd));
       } else {
-        creditsPerToken = parseInt(credits) || 0
+        creditsPerToken = parseInt(credits) || 0;
       }
-      
-      totalCredits = creditsPerToken * tokenCount
-      valueLabel = String(prod.value_credits_usd)
+      totalCredits = creditsPerToken * tokenCount;
+      valueLabel = String(prod.value_credits_usd);
     } else {
-      const usdAmt = parseFloat(usd) || 0
-      creditsPerToken = usdAmt
-      totalCredits = creditsPerToken * tokenCount
-      valueLabel = 'USD'
+      const usdAmt = parseFloat(usd) || 0;
+      creditsPerToken = usdAmt;
+      totalCredits = creditsPerToken * tokenCount;
+      valueLabel = 'USD';
     }
-
     // Create transaction record
     const { data: txData, error: txError } = await supabase.from('transactions').insert({
       user_id: user.id,
@@ -154,57 +209,72 @@ Deno.serve(async (req) => {
       mode: type === 'product' ? mode : 'usd',
       fee_usd: 0.0001,
       credits_per_token: creditsPerToken,
-      total_credits: totalCredits,
-    }).select().single()
-
+      total_credits: totalCredits
+    }).select().single();
     if (txError) {
-      console.error('Transaction error:', txError)
-      return new Response(JSON.stringify({ error: 'Failed to create transaction' }), {
+      console.error('Transaction error:', txError);
+      return new Response(JSON.stringify({
+        error: 'Failed to create transaction'
+      }), {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      })
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
     }
-
     // Generate individual tokens
-    const tokens = []
-    for (let i = 0; i < tokenCount; i++) {
-      const tokenString = type === 'product' 
-        ? `${prefix}-${creditsPerToken}-${randString(15)}`
-        : `${prefix}-${creditsPerToken}USD-${randString(15)}`
-      
+    const tokens = [];
+    for(let i = 0; i < tokenCount; i++){
+      const tokenString = type === 'product' ? `${prefix}-${creditsPerToken}-${randString(15)}` : `${prefix}-${creditsPerToken}USD-${randString(15)}`;
       tokens.push({
         batch_tx_id: txData.id,
         user_id: user.id,
         product_id: type === 'product' ? productId : null,
         token_string: tokenString,
-        credits: creditsPerToken,
-      })
+        credits: creditsPerToken
+      });
     }
-
-    const { error: tokensError } = await supabase.from('tokens').insert(tokens)
+    const { error: tokensError } = await supabase.from('tokens').insert(tokens);
     if (tokensError) {
-      console.error('Tokens error:', tokensError)
-      return new Response(JSON.stringify({ error: 'Failed to generate tokens' }), {
+      console.error('Tokens error:', tokensError);
+      return new Response(JSON.stringify({
+        error: 'Failed to generate tokens'
+      }), {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      })
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
     }
-
-    console.log(`Successfully generated ${tokenCount} tokens for user ${user.id}`)
-
-    return new Response(JSON.stringify({ 
-      success: true, 
+    // Invia i token alla table esterna HUB_API
+    const hubSuccess = await sendTokensToHub(tokens, type, productName);
+    if (!hubSuccess) {
+      console.warn('Failed to send tokens to HUB, but local tokens were created successfully');
+    }
+    console.log(`Successfully generated ${tokenCount} tokens for user ${user.id}`);
+    return new Response(JSON.stringify({
+      success: true,
       message: `${tokenCount} tokens generated successfully`,
-      transactionId: txData.id
+      transactionId: txData.id,
+      hubSyncStatus: hubSuccess ? 'success' : 'failed'
     }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    })
-
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json'
+      }
+    });
   } catch (error) {
-    console.error('Error in generate-tokens function:', error)
-    return new Response(JSON.stringify({ error: error.message }), {
+    console.error('Error in generate-tokens function:', error);
+    return new Response(JSON.stringify({
+      error: error.message
+    }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    })
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json'
+      }
+    });
   }
-})
+});
