@@ -307,7 +307,10 @@ const Dashboard = () => {
               onClick={() => window.open('https://t.me/DeepFather', '_blank')}
               className="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2"
             >
-              📱
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="12" fill="currentColor"/>
+                <path d="M6.5 12.5l3.5 1.5 6-6-4 7 2.5 1.5 4.5-8.5-12.5 5z" fill="white"/>
+              </svg>
             </Button>
             <span className="text-sm text-muted-foreground">Balance: ${balanceUsd.toFixed(4)} USD</span>
             <Button variant="outline" onClick={async () => { await supabase.auth.signOut(); window.location.replace('/'); }}>Logout</Button>
