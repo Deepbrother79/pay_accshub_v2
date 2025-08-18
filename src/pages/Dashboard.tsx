@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { Download, Plus, DollarSign, Coins, CreditCard, Users } from "lucide-react";
 
 type Product = { product_id: string; name: string; value_credits_usd: number };
 
@@ -287,11 +294,35 @@ const Dashboard = () => {
     }
   };
 
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString();
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'completed':
+      case 'confirmed':
+      case 'finished':
+      case 'paid':
+        return 'bg-green-100 text-green-800';
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'failed':
+      case 'cancelled':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
   return (
-    <main className="min-h-screen px-4 py-8 bg-background">
-      <div className="mx-auto max-w-5xl space-y-8">
+    <main className="min-h-screen px-4 py-8 bg-gradient-to-br from-slate-50 to-slate-100">
+      <div className="mx-auto max-w-7xl space-y-8">
         <header className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">User Dashboard</h1>
+          <div>
+            <h1 className="text-4xl font-bold text-slate-900">Token Hub Dashboard</h1>
+            <p className="text-slate-600 mt-2">Manage your tokens and API access</p>
+          </div>
           <div className="flex items-center gap-3">
             <Button 
               variant="default" 
@@ -299,239 +330,347 @@ const Dashboard = () => {
               onClick={() => window.open('https://token-transaction-hub.vercel.app/', '_blank')}
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2"
             >
+              <Users className="w-4 h-4 mr-2" />
               HUB API
             </Button>
             <Button 
               variant="default" 
               size="lg"
               onClick={() => window.open('https://t.me/DeepFather', '_blank')}
-              className="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2"
+              className="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 flex items-center gap-2"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="12" cy="12" r="12" fill="currentColor"/>
-                <path d="M6.5 12.5l3.5 1.5 6-6-4 7 2.5 1.5 4.5-8.5-12.5 5z" fill="white"/>
+              <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                width="20" 
+                height="20" 
+                viewBox="0 0 24 24" 
+                fill="currentColor"
+              >
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-.63-.32-.13-.66 2.34-1.45 3.9-2.4 4.68-2.87 2.23-1.1 2.7-1.3 3-.1.3-.08.72.22.48 1.02z"/>
               </svg>
+              Support
             </Button>
-            <span className="text-sm text-muted-foreground">Balance: ${balanceUsd.toFixed(4)} USD</span>
+            <div className="text-right">
+              <div className="text-sm text-slate-600">Balance</div>
+              <div className="text-xl font-bold text-green-600">${balanceUsd.toFixed(4)}</div>
+            </div>
             <Button variant="outline" onClick={async () => { await supabase.auth.signOut(); window.location.replace('/'); }}>Logout</Button>
           </div>
         </header>
 
-        <section className="grid md:grid-cols-2 gap-6">
-          <article className="border rounded-lg p-4 space-y-3">
-            <h2 className="text-xl font-semibold">Top up balance (USD)</h2>
-            <div className="flex gap-2">
-              <Input 
-                type="number"
-                min="1"
-                step="0.01"
-                placeholder="Amount in USD (min. 1)" 
-                value={topup} 
-                onChange={handleTopupChange}
-              />
-              <Button onClick={handleTopup}>Reload Balance</Button>
-            </div>
-            <p className="text-xs text-muted-foreground">Payments are processed via NowPayments. After completion, your balance updates automatically.</p>
-          </article>
+        {/* Balance Overview Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Deposited</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">${confirmedUsd.toFixed(2)}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Spent</CardTitle>
+              <CreditCard className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">${spentUsd.toFixed(4)}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Available Balance</CardTitle>
+              <Coins className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">${balanceUsd.toFixed(4)}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Tokens</CardTitle>
+              <Plus className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{txs.reduce((sum, tx) => sum + (tx.token_count || 1), 0)}</div>
+            </CardContent>
+          </Card>
+        </div>
 
-          <article className="border rounded-lg p-4 space-y-3">
-            <h2 className="text-xl font-semibold">Generate Token</h2>
-            <p className="text-xs text-muted-foreground">Fields marked with * are required. USD and Credits values must be at least 1.</p>
-            <div className="flex gap-2">
-              <Button variant={type==='product'? 'default':'outline'} onClick={()=>setType('product')}>Product</Button>
-              <Button variant={type==='master'? 'default':'outline'} onClick={()=>setType('master')}>Master</Button>
-            </div>
-            
-            {type==='product' && (
-              <div className="space-y-2">
-                <label className="text-sm">Product</label>
-                <select className="w-full h-10 rounded-md border bg-background px-3 text-sm" value={productId} onChange={(e)=>setProductId(e.target.value)}>
-                  <option value="">Select product</option>
-                  {products.map(p => (
-                    <option key={p.product_id} value={p.product_id}>{p.name} • {Number(p.value_credits_usd).toFixed(4)} USD/credit</option>
-                  ))}
-                </select>
-              </div>
-            )}
+        <Tabs defaultValue="generate" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="generate">Generate Tokens</TabsTrigger>
+            <TabsTrigger value="topup">Add Funds</TabsTrigger>
+            <TabsTrigger value="transactions">Transactions</TabsTrigger>
+            <TabsTrigger value="payments">Payments</TabsTrigger>
+          </TabsList>
 
-            <div className="space-y-2">
-              <label className="text-sm">Number of Tokens (Max 1000)</label>
-              <Input 
-                type="number" 
-                min="1" 
-                max="1000" 
-                placeholder="1" 
-                value={tokenCount} 
-                onChange={(e)=>setTokenCount(e.target.value)} 
-              />
-            </div>
-
-            {type === 'product' && productId && (
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <label className="text-sm">Payment Method</label>
-                  <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox 
-                        id="usd-mode" 
-                        checked={mode === 'usd'} 
-                        onCheckedChange={(checked) => checked && setMode('usd')} 
-                      />
-                      <label htmlFor="usd-mode" className="text-sm">USD Amount</label>
+          <TabsContent value="generate">
+            <Card>
+              <CardHeader>
+                <CardTitle>Generate New Tokens</CardTitle>
+                <CardDescription>Create new tokens for your products or master access</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <Label htmlFor="tokenType">Token Type</Label>
+                      <Select value={type} onValueChange={(value: 'product' | 'master') => setType(value)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="product">Product Token</SelectItem>
+                          <SelectItem value="master">Master Token</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox 
-                        id="credits-mode" 
-                        checked={mode === 'credits'} 
-                        onCheckedChange={(checked) => checked && setMode('credits')} 
+
+                    {type === 'product' && (
+                      <div>
+                        <Label htmlFor="product">Product</Label>
+                        <Select value={productId} onValueChange={setProductId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a product" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {products.map(p => (
+                              <SelectItem key={p.product_id} value={p.product_id}>
+                                {p.name} (${p.value_credits_usd}/credit)
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {type === 'product' && (
+                      <div>
+                        <Label>Payment Mode</Label>
+                        <Select value={mode} onValueChange={(value: 'usd' | 'credits') => setMode(value)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="usd">USD per Token</SelectItem>
+                            <SelectItem value="credits">Credits per Token</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    <div>
+                      <Label htmlFor="tokenCount">Number of Tokens</Label>
+                      <Input
+                        id="tokenCount"
+                        type="number"
+                        min="1"
+                        max="1000"
+                        value={tokenCount}
+                        onChange={(e) => setTokenCount(e.target.value)}
+                        placeholder="1"
                       />
-                      <label htmlFor="credits-mode" className="text-sm">Credits Count</label>
                     </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {(mode === 'usd' || type === 'master') && (
+                      <div>
+                        <Label htmlFor="usd">USD Value per Token</Label>
+                        <Input
+                          id="usd"
+                          type="number"
+                          min="1"
+                          step="0.01"
+                          value={usd}
+                          onChange={(e) => setUsd(e.target.value)}
+                          placeholder="10.00"
+                        />
+                      </div>
+                    )}
+
+                    {mode === 'credits' && type === 'product' && (
+                      <div>
+                        <Label htmlFor="credits">Credits per Token</Label>
+                        <Input
+                          id="credits"
+                          type="number"
+                          min="1"
+                          value={credits}
+                          onChange={(e) => setCredits(e.target.value)}
+                          placeholder="100"
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <Label>Token Prefix</Label>
+                      <Select value={prefixMode} onValueChange={(value: 'auto' | 'custom') => setPrefixMode(value)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto Generate</SelectItem>
+                          <SelectItem value="custom">Custom Prefix</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {prefixMode === 'custom' && (
+                      <div>
+                        <Label htmlFor="prefix">Custom Prefix (max 4 chars)</Label>
+                        <Input
+                          id="prefix"
+                          maxLength={4}
+                          value={prefixInput}
+                          onChange={(e) => setPrefixInput(e.target.value.toUpperCase())}
+                          placeholder="ABCD"
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {mode === 'usd' && (
-                  <div className="space-y-2">
-                    <label className="text-sm">USD per Token *</label>
-                    <Input 
-                      type="number" 
-                      min="1" 
-                      step="0.0001"
-                      placeholder="e.g. 1.2000" 
-                      value={usd} 
-                      onChange={(e)=>setUsd(e.target.value)} 
-                      required
-                    />
-                  </div>
-                )}
+                <Separator />
 
-                {mode === 'credits' && (
-                  <div className="space-y-2">
-                    <label className="text-sm">Credits per Token *</label>
-                    <Input 
-                      type="number" 
-                      min="1"
-                      placeholder="e.g. 1000" 
-                      value={credits} 
-                      onChange={(e)=>setCredits(e.target.value)} 
-                      required
-                    />
-                  </div>
-                )}
-
-                {totalCost > 0 && (
-                  <div className="p-3 bg-muted rounded-md space-y-1">
-                    <p className="text-sm font-medium">Cost Summary:</p>
-                    <p className="text-xs">Tokens: {tokenCount}</p>
-                    <p className="text-xs">Credits per token: {mode === 'usd' ? Math.floor((parseFloat(usd) || 0) / Number(products.find(p => p.product_id === productId)?.value_credits_usd || 1)) : credits}</p>
-                    <p className="text-xs">Standard fee: $0.0001</p>
-                    <p className="text-sm font-semibold">Total cost: ${totalCost.toFixed(4)} USD</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {type === 'master' && (
-              <div className="space-y-2">
-                <label className="text-sm">USD per Token *</label>
-                <Input 
-                  type="number" 
-                  min="1" 
-                  step="0.0001"
-                  placeholder="e.g. 10" 
-                  value={usd} 
-                  onChange={(e)=>setUsd(e.target.value)} 
-                  required
-                />
-                
-                {totalCost > 0 && (
-                  <div className="p-3 bg-muted rounded-md space-y-1">
-                    <p className="text-sm font-medium">Cost Summary:</p>
-                    <p className="text-xs">Tokens: {tokenCount}</p>
-                    <p className="text-xs">USD per token: {usd}</p>
-                    <p className="text-xs">Standard fee: $0.0001</p>
-                    <p className="text-sm font-semibold">Total cost: ${totalCost.toFixed(4)} USD</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <label className="text-sm">Prefix</label>
-              <div className="flex gap-2">
-                <Button variant={prefixMode==='auto'? 'default':'outline'} onClick={()=>setPrefixMode('auto')}>Auto</Button>
-                <Button variant={prefixMode==='custom'? 'default':'outline'} onClick={()=>setPrefixMode('custom')}>Custom</Button>
-              </div>
-              {prefixMode==='custom' && (
-                <Input placeholder="Max 4 alphanumeric chars" value={prefixInput} onChange={(e)=>setPrefixInput(e.target.value)} />
-              )}
-            </div>
-
-            <Button className="w-full" onClick={handleGenerate}>Generate Tokens</Button>
-            
-            
-            <p className="text-xs text-muted-foreground">
-              Format: prefix-credits-random15. Master tokens use USD instead of credits count. 
-              Standard fee of $0.0001 applies per generation request.
-            </p>
-          </article>
-        </section>
-
-        <section className="grid md:grid-cols-2 gap-6">
-          <article className="border rounded-lg p-4">
-            <h3 className="text-lg font-semibold mb-3">Payments History</h3>
-            <div className="space-y-2 max-h-[300px] overflow-auto">
-              {payments.map(p => (
-                <div key={p.id} className="text-sm border-b pb-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">{new Date(p.created_at).toLocaleString()}</span>
-                    <span>{(p.amount_usd ?? 0).toFixed(2)} {p.currency || 'USD'}</span>
-                    <span className="font-medium">{p.status}</span>
-                  </div>
-                  {p.pay_currency && (
-                    <div className="text-xs text-muted-foreground">
-                      Pay currency: {p.pay_currency}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-lg font-semibold">Total Cost: ${totalCost.toFixed(6)}</div>
+                    <div className="text-sm text-slate-600">
+                      {parseInt(tokenCount) || 1} token(s) × ${((totalCost - 0.0001) / (parseInt(tokenCount) || 1)).toFixed(6)} + $0.0001 fee
                     </div>
+                  </div>
+                  <Button 
+                    onClick={handleGenerate}
+                    disabled={totalCost === 0 || totalCost > balanceUsd}
+                    size="lg"
+                    className="px-8"
+                  >
+                    Generate Tokens
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="topup">
+            <Card>
+              <CardHeader>
+                <CardTitle>Add Funds</CardTitle>
+                <CardDescription>Top up your account balance to generate more tokens</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-4 items-end">
+                  <div className="flex-1">
+                    <Label htmlFor="topupAmount">Amount (USD)</Label>
+                    <Input
+                      id="topupAmount"
+                      type="number"
+                      min="1"
+                      step="0.01"
+                      value={topup}
+                      onChange={handleTopupChange}
+                      placeholder="25.00"
+                    />
+                  </div>
+                  <Button onClick={handleTopup} disabled={!topup || parseFloat(topup) < 1}>
+                    Add Funds
+                  </Button>
+                </div>
+                <p className="text-sm text-slate-600 mt-2">Minimum top-up amount is $1.00</p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="transactions">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Transaction History</CardTitle>
+                  <CardDescription>Your token generation history</CardDescription>
+                </div>
+                <Button onClick={() => exportTokens()} variant="outline">
+                  <Download className="w-4 h-4 mr-2" />
+                  Export All Tokens
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {txs.length === 0 ? (
+                    <p className="text-center text-slate-500 py-8">No transactions yet</p>
+                  ) : (
+                    txs.map((tx) => (
+                      <div key={tx.id} className="border rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Badge variant={tx.token_type === 'master' ? 'default' : 'secondary'}>
+                                {tx.token_type}
+                              </Badge>
+                              <span className="font-mono text-sm">{tx.token_string}</span>
+                            </div>
+                            <div className="text-sm text-slate-600 space-y-1">
+                              <div>Created: {formatDate(tx.created_at)}</div>
+                              <div>Cost: ${tx.usd_spent.toFixed(6)}</div>
+                              {tx.credits > 0 && <div>Credits: {tx.credits}</div>}
+                              {tx.token_count && tx.token_count > 1 && <div>Batch Size: {tx.token_count}</div>}
+                            </div>
+                          </div>
+                          <Button
+                            onClick={() => exportTokens(tx.id)}
+                            variant="outline"
+                            size="sm"
+                          >
+                            <Download className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))
                   )}
                 </div>
-              ))}
-              {payments.length === 0 && <p className="text-sm text-muted-foreground">No payments yet.</p>}
-            </div>
-          </article>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-          <article className="border rounded-lg p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold">Transactions ID</h3>
-              <Button variant="outline" size="sm" onClick={() => exportTokens()}>
-                Export All
-              </Button>
-            </div>
-            <div className="space-y-2 max-h-[300px] overflow-auto">
-              {txs.map(t => (
-                <div key={t.id} className="text-sm border-b pb-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">{new Date(t.created_at).toLocaleString()}</span>
-                    <span className="font-medium">{t.token_type}</span>
-                    <span>${t.usd_spent.toFixed(4)}</span>
-                  </div>
-                  <div className="truncate">{t.token_string}</div>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{t.token_count || 1} tokens • {t.mode || 'usd'} mode</span>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => exportTokens(t.id)}
-                      className="h-6 px-2 text-xs"
-                    >
-                      Export
-                    </Button>
-                  </div>
+          <TabsContent value="payments">
+            <Card>
+              <CardHeader>
+                <CardTitle>Payment History</CardTitle>
+                <CardDescription>Your account funding history</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {payments.length === 0 ? (
+                    <p className="text-center text-slate-500 py-8">No payments yet</p>
+                  ) : (
+                    payments.map((payment) => (
+                      <div key={payment.id} className="border rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Badge className={getStatusColor(payment.status || '')}>
+                                {payment.status}
+                              </Badge>
+                              <span className="font-semibold">${payment.amount_usd?.toFixed(2)}</span>
+                            </div>
+                            <div className="text-sm text-slate-600">
+                              {formatDate(payment.created_at)}
+                              {payment.pay_currency && (
+                                <div>Pay currency: {payment.pay_currency}</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
-              ))}
-              {txs.length === 0 && <p className="text-sm text-muted-foreground">No transactions yet.</p>}
-            </div>
-          </article>
-        </section>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </main>
   );
