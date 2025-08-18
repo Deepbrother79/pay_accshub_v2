@@ -135,13 +135,22 @@ const Dashboard = () => {
     return 0;
   }, [type, productId, products, tokenCount, mode, usd, credits]);
 
+  // Funzione per gestire l'input del top-up (solo numeri e decimali, minimo 1)
+  const handleTopupChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    // Permetti solo numeri e un punto decimale
+    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+      setTopup(value);
+    }
+  };
+
   const handleTopup = async () => {
-  const amt = Number(topup);
-  if (!amt || amt < 1) return toast({ title: 'Minimum top-up is $1' });
-  const { data, error } = await supabase.functions.invoke('create-invoice', { body: { amount_usd: amt } });
-  if (error) return toast({ title: 'Failed to start payment', description: error.message });
-  if (data?.payment_url) window.open(data.payment_url, '_blank');
-  else toast({ title: 'Invoice created', description: 'Complete payment to add funds.' });
+    const amt = Number(topup);
+    if (!amt || amt < 1) return toast({ title: 'Minimum top-up is $1' });
+    const { data, error } = await supabase.functions.invoke('create-invoice', { body: { amount_usd: amt } });
+    if (error) return toast({ title: 'Failed to start payment', description: error.message });
+    if (data?.payment_url) window.open(data.payment_url, '_blank');
+    else toast({ title: 'Invoice created', description: 'Complete payment to add funds.' });
   };
 
   const handleGenerate = async () => {
@@ -292,6 +301,14 @@ const Dashboard = () => {
             >
               HUB API
             </Button>
+            <Button 
+              variant="default" 
+              size="lg"
+              onClick={() => window.open('https://t.me/DeepFather', '_blank')}
+              className="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2"
+            >
+              📱
+            </Button>
             <span className="text-sm text-muted-foreground">Balance: ${balanceUsd.toFixed(4)} USD</span>
             <Button variant="outline" onClick={async () => { await supabase.auth.signOut(); window.location.replace('/'); }}>Logout</Button>
           </div>
@@ -301,7 +318,14 @@ const Dashboard = () => {
           <article className="border rounded-lg p-4 space-y-3">
             <h2 className="text-xl font-semibold">Top up balance (USD)</h2>
             <div className="flex gap-2">
-              <Input placeholder="Amount in USD" value={topup} onChange={(e) => setTopup(e.target.value)} />
+              <Input 
+                type="number"
+                min="1"
+                step="0.01"
+                placeholder="Amount in USD (min. 1)" 
+                value={topup} 
+                onChange={handleTopupChange}
+              />
               <Button onClick={handleTopup}>Reload Balance</Button>
             </div>
             <p className="text-xs text-muted-foreground">Payments are processed via NowPayments. After completion, your balance updates automatically.</p>
