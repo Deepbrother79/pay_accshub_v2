@@ -88,9 +88,18 @@ Deno.serve(async (req: Request) => {
         })
         .eq('id', existing.id)
     } else {
+      // Get the user_id from the existing payment record or use the order_id pattern
+      const { data: orderData } = await supabase
+        .from('payment_history')
+        .select('user_id')
+        .eq('order_id', order_id)
+        .maybeSingle()
+      
+      const userId = orderData?.user_id || order_id
+
       // Create new payment record using order_id as unique identifier
       await supabase.from('payment_history').insert({
-        user_id: order_id || null,
+        user_id: userId,
         order_id: order_id,
         status: payment_status,
         amount_usd: price_currency_norm === 'USD' ? price_amount : null,

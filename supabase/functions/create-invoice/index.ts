@@ -88,7 +88,7 @@ Deno.serve(async (req: Request) => {
     // Insert a pending record for the user
     await supabase.from('payment_history').insert({
       user_id: user.id,
-      invoice_id: payment_id?.toString() ?? null,
+      order_id: user.id,
       status: 'pending',
       amount_usd: amount,
       currency: 'USD',

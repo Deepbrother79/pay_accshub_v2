@@ -14,7 +14,7 @@ import { Download, Plus, DollarSign, Coins, CreditCard, Users } from "lucide-rea
 
 type Product = { product_id: string; name: string; value_credits_usd: number };
 
-type Payment = { id: string; status: string; amount_usd: number | null; created_at: string; currency?: string; pay_currency?: string };
+type Payment = { id: string; status: string; amount_usd: number | null; created_at: string; currency?: string; pay_currency?: string; raw?: any };
 
 type Tx = { 
   id: string; 
@@ -83,7 +83,7 @@ const Dashboard = () => {
     (async () => {
       const { data: pays } = await supabase
         .from('payment_history')
-        .select('id,status,amount_usd,created_at,currency,pay_currency')
+        .select('id,status,amount_usd,created_at,currency,pay_currency,raw')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
       setPayments(pays || []);
@@ -645,26 +645,42 @@ const Dashboard = () => {
                   {payments.length === 0 ? (
                     <p className="text-center text-slate-500 py-8">No payments yet</p>
                   ) : (
-                    payments.map((payment) => (
-                      <div key={payment.id} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="flex items-center gap-2 mb-2">
-                              <Badge className={getStatusColor(payment.status || '')}>
-                                {payment.status}
-                              </Badge>
-                              <span className="font-semibold">${payment.amount_usd?.toFixed(2)}</span>
-                            </div>
-                            <div className="text-sm text-slate-600">
-                              {formatDate(payment.created_at)}
-                              {payment.pay_currency && (
-                                <div>Pay currency: {payment.pay_currency}</div>
-                              )}
+                    payments.map((payment) => {
+                      const invoiceUrl = payment.raw?.invoice_url;
+                      return (
+                        <div 
+                          key={payment.id} 
+                          className={`border rounded-lg p-4 transition-colors ${
+                            invoiceUrl ? 'hover:bg-accent cursor-pointer' : ''
+                          }`}
+                          onClick={() => {
+                            if (invoiceUrl) {
+                              window.open(invoiceUrl, '_blank');
+                            }
+                          }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <Badge className={getStatusColor(payment.status || '')}>
+                                  {payment.status}
+                                </Badge>
+                                <span className="font-semibold">${payment.amount_usd?.toFixed(2)}</span>
+                                {payment.pay_currency && (
+                                  <Badge variant="outline">{payment.pay_currency}</Badge>
+                                )}
+                              </div>
+                              <div className="text-sm text-slate-600">
+                                {formatDate(payment.created_at)}
+                                {invoiceUrl && (
+                                  <span className="ml-2 text-blue-600">• Click to view invoice</span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </CardContent>
