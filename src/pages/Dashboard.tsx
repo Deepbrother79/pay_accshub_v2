@@ -10,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Download, Plus, DollarSign, Coins, CreditCard, Users } from "lucide-react";
+import { Download, Plus, DollarSign, Coins, CreditCard, Users, RefreshCw, User } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 type Product = { product_id: string; name: string; value_credits_usd: number };
 
@@ -38,10 +39,12 @@ const randString = (len = 15) => {
 const Dashboard = () => {
   const { toast } = useToast();
   const [userId, setUserId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [txs, setTxs] = useState<Tx[]>([]);
   const [flashingPaymentId, setFlashingPaymentId] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [topup, setTopup] = useState<string>("");
 
@@ -58,9 +61,13 @@ const Dashboard = () => {
     document.title = "Dashboard | Token Hub";
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setUserId(session?.user?.id ?? null);
+      setUserEmail(session?.user?.email ?? null);
       if (!session?.user) window.location.replace('/auth');
     });
-    supabase.auth.getSession().then(({ data }) => setUserId(data.session?.user?.id ?? null));
+    supabase.auth.getSession().then(({ data }) => {
+      setUserId(data.session?.user?.id ?? null);
+      setUserEmail(data.session?.user?.email ?? null);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -140,6 +147,25 @@ const Dashboard = () => {
       supabase.removeChannel(channel);
     };
   }, [userId]);
+
+  // Function to manually refresh payment history
+  const refreshPaymentHistory = async () => {
+    if (!userId) return;
+    setIsRefreshing(true);
+    try {
+      const { data: pays } = await supabase
+        .from('payment_history')
+        .select('id,status,amount_usd,created_at,currency,pay_currency,raw,order_id')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      setPayments(pays || []);
+      toast({ title: 'Payment history refreshed' });
+    } catch (error) {
+      toast({ title: 'Failed to refresh', description: 'Please try again' });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const confirmedUsd = useMemo(() => {
     const ok = new Set(['finished','confirmed','completed','paid']);
@@ -389,7 +415,28 @@ const Dashboard = () => {
               <div className="text-sm text-slate-600">Balance</div>
               <div className="text-xl font-bold text-green-600">${balanceUsd.toFixed(4)}</div>
             </div>
-            <Button variant="outline" onClick={async () => { await supabase.auth.signOut(); window.location.replace('/'); }}>Logout</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="lg" className="flex items-center gap-2">
+                  <User className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <div className="px-3 py-2 border-b">
+                  <div className="text-sm font-medium">Account</div>
+                  <div className="text-sm text-slate-600 truncate">{userEmail}</div>
+                </div>
+                <DropdownMenuItem 
+                  onClick={async () => { 
+                    await supabase.auth.signOut(); 
+                    window.location.replace('/'); 
+                  }}
+                  className="text-red-600 cursor-pointer"
+                >
+                  Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 
@@ -671,9 +718,22 @@ const Dashboard = () => {
 
           <TabsContent value="payments">
             <Card>
-              <CardHeader>
-                <CardTitle>Payment History</CardTitle>
-                <CardDescription>Your account funding history</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    Payment History
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={refreshPaymentHistory}
+                      disabled={isRefreshing}
+                      className="h-6 w-6 p-0"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </CardTitle>
+                  <CardDescription>Your account funding history</CardDescription>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
