@@ -55,6 +55,8 @@ Deno.serve(async (req: Request) => {
     }
 
     const ipnUrl = `${SUPABASE_URL}/functions/v1/nowpayments-ipn`
+    // Generate unique order_id to avoid conflicts
+    const orderId = `${user.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
     const npRes = await fetch('https://api.nowpayments.io/v1/invoice', {
       method: 'POST',
@@ -65,7 +67,7 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         price_amount: amount,
         price_currency: 'USD',
-        order_id: user.id,
+        order_id: orderId,
         ipn_callback_url: ipnUrl,
         is_fixed_rate: false,
         is_fee_paid_by_user: false,
@@ -85,10 +87,10 @@ Deno.serve(async (req: Request) => {
     const payment_id = npJson?.payment_id ?? npJson?.id ?? null
     const payment_url = npJson?.payment_url ?? npJson?.invoice_url ?? null
 
-    // Insert a pending record for the user
+    // Insert a pending record for the user with unique order_id
     await supabase.from('payment_history').insert({
       user_id: user.id,
-      order_id: user.id,
+      order_id: orderId,
       status: 'pending',
       amount_usd: amount,
       currency: 'USD',

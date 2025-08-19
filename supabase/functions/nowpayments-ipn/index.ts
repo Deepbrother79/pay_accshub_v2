@@ -67,45 +67,39 @@ Deno.serve(async (req: Request) => {
     // Use service role to bypass RLS for webhook updates
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY ?? '')
 
-    // Check if payment record already exists by order_id to prevent duplicates
+    // Check if payment record already exists by order_id
     const { data: existing } = await supabase
       .from('payment_history')
-      .select('id')
+      .select('id, user_id')
       .eq('order_id', order_id)
       .maybeSingle()
 
     if (existing) {
-      // Update existing payment record
+      // Update existing payment record with the same order_id
       await supabase
         .from('payment_history')
         .update({
           status: payment_status,
           amount_usd: price_currency_norm === 'USD' ? price_amount : null,
           amount_crypto: actually_paid,
-          currency: price_currency_norm, // price_currency for main currency
-          pay_currency: pay_currency_norm, // pay_currency for crypto used
+          currency: price_currency_norm,
+          pay_currency: pay_currency_norm,
           raw: body,
         })
-        .eq('id', existing.id)
-    } else {
-      // Get the user_id from the existing payment record or use the order_id pattern
-      const { data: orderData } = await supabase
-        .from('payment_history')
-        .select('user_id')
         .eq('order_id', order_id)
-        .maybeSingle()
+    } else {
+      // Extract user_id from order_id pattern (user_id_timestamp_random)
+      const userIdFromOrder = order_id.split('_')[0]
       
-      const userId = orderData?.user_id || order_id
-
-      // Create new payment record using order_id as unique identifier
+      // Create new payment record only if it doesn't exist
       await supabase.from('payment_history').insert({
-        user_id: userId,
+        user_id: userIdFromOrder,
         order_id: order_id,
         status: payment_status,
         amount_usd: price_currency_norm === 'USD' ? price_amount : null,
         amount_crypto: actually_paid,
-        currency: price_currency_norm, // price_currency for main currency
-        pay_currency: pay_currency_norm, // pay_currency for crypto used
+        currency: price_currency_norm,
+        pay_currency: pay_currency_norm,
         raw: body,
       })
     }

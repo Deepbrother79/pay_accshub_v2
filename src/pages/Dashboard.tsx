@@ -14,7 +14,7 @@ import { Download, Plus, DollarSign, Coins, CreditCard, Users } from "lucide-rea
 
 type Product = { product_id: string; name: string; value_credits_usd: number };
 
-type Payment = { id: string; status: string; amount_usd: number | null; created_at: string; currency?: string; pay_currency?: string; raw?: any };
+type Payment = { id: string; status: string; amount_usd: number | null; created_at: string; currency?: string; pay_currency?: string; raw?: any; order_id?: string };
 
 type Tx = { 
   id: string; 
@@ -41,6 +41,7 @@ const Dashboard = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [txs, setTxs] = useState<Tx[]>([]);
+  const [flashingPaymentId, setFlashingPaymentId] = useState<string | null>(null);
 
   const [topup, setTopup] = useState<string>("");
 
@@ -80,10 +81,12 @@ const Dashboard = () => {
 
   useEffect(() => {
     if (!userId) return;
+    
+    // Fetch initial data
     (async () => {
       const { data: pays } = await supabase
         .from('payment_history')
-        .select('id,status,amount_usd,created_at,currency,pay_currency,raw')
+        .select('id,status,amount_usd,created_at,currency,pay_currency,raw,order_id')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
       setPayments(pays || []);
@@ -104,6 +107,38 @@ const Dashboard = () => {
       })) as Tx[];
       setTxs(normalizedTxs);
     })();
+
+    // Setup realtime subscription for payments
+    const channel = supabase
+      .channel('payment_history_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'payment_history',
+          filter: `user_id=eq.${userId}`
+        },
+        (payload) => {
+          console.log('Payment update received:', payload);
+          if (payload.eventType === 'INSERT') {
+            setPayments(prev => [payload.new as Payment, ...prev]);
+            setFlashingPaymentId(payload.new.id);
+            setTimeout(() => setFlashingPaymentId(null), 2000);
+          } else if (payload.eventType === 'UPDATE') {
+            setPayments(prev => prev.map(p => 
+              p.id === payload.new.id ? payload.new as Payment : p
+            ));
+            setFlashingPaymentId(payload.new.id);
+            setTimeout(() => setFlashingPaymentId(null), 2000);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [userId]);
 
   const confirmedUsd = useMemo(() => {
@@ -646,13 +681,15 @@ const Dashboard = () => {
                     <p className="text-center text-slate-500 py-8">No payments yet</p>
                   ) : (
                     payments.map((payment) => {
-                      const invoiceUrl = payment.raw?.invoice_url;
+                      const invoiceUrl = payment.raw?.invoice_url || payment.raw?.payment_url;
+                      const isFlashing = flashingPaymentId === payment.id;
+                      
                       return (
                         <div 
                           key={payment.id} 
-                          className={`border rounded-lg p-4 transition-colors ${
-                            invoiceUrl ? 'hover:bg-accent cursor-pointer' : ''
-                          }`}
+                          className={`border rounded-lg p-4 transition-all duration-500 ${
+                            isFlashing ? 'bg-blue-50 border-blue-300 shadow-lg animate-pulse' : 'hover:bg-gray-50'
+                          } ${invoiceUrl ? 'cursor-pointer' : ''}`}
                           onClick={() => {
                             if (invoiceUrl) {
                               window.open(invoiceUrl, '_blank');
@@ -660,7 +697,7 @@ const Dashboard = () => {
                           }}
                         >
                           <div className="flex items-center justify-between">
-                            <div>
+                            <div className="flex-1">
                               <div className="flex items-center gap-2 mb-2">
                                 <Badge className={getStatusColor(payment.status || '')}>
                                   {payment.status}
@@ -669,11 +706,14 @@ const Dashboard = () => {
                                 {payment.pay_currency && (
                                   <Badge variant="outline">{payment.pay_currency}</Badge>
                                 )}
+                                {invoiceUrl && (
+                                  <Badge variant="secondary" className="text-xs">Click to view invoice</Badge>
+                                )}
                               </div>
                               <div className="text-sm text-slate-600">
-                                {formatDate(payment.created_at)}
-                                {invoiceUrl && (
-                                  <span className="ml-2 text-blue-600">• Click to view invoice</span>
+                                <div>Date: {formatDate(payment.created_at)}</div>
+                                {payment.order_id && (
+                                  <div className="font-mono text-xs">Order: {payment.order_id}</div>
                                 )}
                               </div>
                             </div>
