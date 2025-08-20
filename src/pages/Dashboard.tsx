@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Download, Plus, DollarSign, Coins, CreditCard, Users, RefreshCw, User } from "lucide-react";
+import { Download, Plus, DollarSign, Coins, CreditCard, Users, RefreshCw, User, ShoppingCart } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 type Product = { product_id: string; name: string; value_credits_usd: number };
@@ -203,6 +203,19 @@ const Dashboard = () => {
     return 0;
   }, [type, productId, products, tokenCount, mode, usd, credits]);
 
+  // Calculate single token credits preview for Product Token + USD mode
+  const singleTokenCredits = useMemo(() => {
+    if (type === 'product' && mode === 'usd' && productId && usd) {
+      const prod = products.find(p => p.product_id === productId);
+      if (!prod) return 0;
+      
+      const usdAmt = parseFloat(usd) || 0;
+      const creditsPerUsd = 1 / Number(prod.value_credits_usd); // Credits per USD
+      return Math.floor(usdAmt * creditsPerUsd);
+    }
+    return 0;
+  }, [type, mode, productId, products, usd]);
+
   // Funzione per gestire l'input del top-up (solo numeri e decimali, minimo 1)
   const handleTopupChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -391,7 +404,7 @@ const Dashboard = () => {
               onClick={() => window.open('https://token-transaction-hub.vercel.app/', '_blank')}
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2"
             >
-              <Users className="w-4 h-4 mr-2" />
+              <ShoppingCart className="w-4 h-4 mr-2" />
               HUB API
             </Button>
             <Button 
@@ -484,7 +497,7 @@ const Dashboard = () => {
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="generate">Generate Tokens</TabsTrigger>
             <TabsTrigger value="topup">Add Funds</TabsTrigger>
-            <TabsTrigger value="transactions">Transactions</TabsTrigger>
+            <TabsTrigger value="transactions">Orders</TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
           </TabsList>
 
@@ -530,14 +543,14 @@ const Dashboard = () => {
 
                     {type === 'product' && (
                       <div>
-                        <Label>Payment Mode</Label>
+                        <Label>Fund Token Mode</Label>
                         <Select value={mode} onValueChange={(value: 'usd' | 'credits') => setMode(value)}>
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="usd">USD per Token</SelectItem>
-                            <SelectItem value="credits">Credits per Token</SelectItem>
+                            <SelectItem value="usd">USD For Token</SelectItem>
+                            <SelectItem value="credits">CREDITS For Token</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -575,7 +588,7 @@ const Dashboard = () => {
 
                     {mode === 'credits' && type === 'product' && (
                       <div>
-                        <Label htmlFor="credits">Credits per Token</Label>
+                        <Label htmlFor="credits">CREDITS For Token</Label>
                         <Input
                           id="credits"
                           type="number"
@@ -619,9 +632,16 @@ const Dashboard = () => {
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-lg font-semibold">Total Cost: ${totalCost.toFixed(6)}</div>
-                    <div className="text-sm text-slate-600">
+                    {type === 'product' && mode === 'usd' && singleTokenCredits > 0 && (
+                      <div className="text-md font-medium text-blue-600 mb-2">
+                        Single Token credits: {singleTokenCredits.toLocaleString()} Credits
+                      </div>
+                    )}
+                    <div className="text-lg font-semibold">
                       {parseInt(tokenCount) || 1} token(s) × ${((totalCost - 0.0001) / (parseInt(tokenCount) || 1)).toFixed(6)} + $0.0001 fee
+                    </div>
+                    <div className="text-xl font-bold text-green-600">
+                      Total Cost: ${totalCost.toFixed(6)}
                     </div>
                   </div>
                   <Button 
@@ -670,8 +690,8 @@ const Dashboard = () => {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle>Transaction History</CardTitle>
-                  <CardDescription>Your token generation history</CardDescription>
+                  <CardTitle>Orders History</CardTitle>
+                  <CardDescription>Your tokens generation history</CardDescription>
                 </div>
                 <Button onClick={() => exportTokens()} variant="outline">
                   <Download className="w-4 h-4 mr-2" />
