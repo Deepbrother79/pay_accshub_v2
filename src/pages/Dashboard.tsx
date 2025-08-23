@@ -29,6 +29,22 @@ type Tx = {
   mode?: string;
 };
 
+type RefillTx = {
+  id: string;
+  token_string: string;
+  refill_mode: 'usd' | 'credits';
+  refill_amount: number;
+  credits_added: number;
+  usd_spent: number;
+  fee_usd: number;
+  credits_before: number;
+  credits_after: number;
+  created_at: string;
+  type: 'refill';
+};
+
+type CombinedTx = Tx | RefillTx;
+
 const randString = (len = 15) => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let s = '';
@@ -42,7 +58,7 @@ const Dashboard = () => {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [txs, setTxs] = useState<Tx[]>([]);
+  const [txs, setTxs] = useState<CombinedTx[]>([]);
   const [flashingPaymentId, setFlashingPaymentId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -56,6 +72,31 @@ const Dashboard = () => {
   const [tokenCount, setTokenCount] = useState<string>("1");
   const [prefixMode, setPrefixMode] = useState<'auto'|'custom'>('auto');
   const [prefixInput, setPrefixInput] = useState<string>("");
+  
+  // Refill Token states
+  const [refillTokenType, setRefillTokenType] = useState<'product' | 'master'>('product')
+  const [refillTokenString, setRefillTokenString] = useState('')
+  const [refillMode, setRefillMode] = useState<'usd' | 'credits'>('usd')
+  const [refillAmount, setRefillAmount] = useState('')
+  const [selectedToken, setSelectedToken] = useState<TokenSearchResult | null>(null)
+  const [tokenSearchResults, setTokenSearchResults] = useState<TokenSearchResult[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+
+  // Token search result interface
+  interface TokenSearchResult {
+    id: string
+    token_string: string
+    credits: number
+    product_id: string | null
+    transactions: {
+      token_type: 'product' | 'master'
+      product_id: string | null
+      products?: {
+        name: string
+        value_credits_usd: number
+      } | null
+    }
+  }
 
   useEffect(() => {
     document.title = "Dashboard | Token Hub";
@@ -98,6 +139,7 @@ const Dashboard = () => {
         .order('created_at', { ascending: false });
       setPayments(pays || []);
 
+      // Fetch regular transactions
       const { data: t } = await supabase
         .from('transactions')
         .select('id,token_type,token_string,credits,usd_spent,product_id,created_at')
@@ -112,7 +154,32 @@ const Dashboard = () => {
         product_id: row.product_id ?? null,
         created_at: row.created_at,
       })) as Tx[];
-      setTxs(normalizedTxs);
+
+      // Fetch refill transactions
+      const { data: refillData } = await supabase
+        .from('refill_transactions')
+        .select('id,token_string,refill_mode,refill_amount,credits_added,usd_spent,fee_usd,credits_before,credits_after,created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      const normalizedRefillTxs = (refillData || []).map((row: any) => ({
+        id: row.id,
+        token_string: row.token_string,
+        refill_mode: row.refill_mode,
+        refill_amount: row.refill_amount,
+        credits_added: row.credits_added,
+        usd_spent: row.usd_spent,
+        fee_usd: row.fee_usd,
+        credits_before: row.credits_before,
+        credits_after: row.credits_after,
+        created_at: row.created_at,
+        type: 'refill' as const,
+      })) as RefillTx[];
+
+      // Combine and sort by date
+      const combinedTxs = [...normalizedTxs, ...normalizedRefillTxs].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      setTxs(combinedTxs);
     })();
 
     // Setup realtime subscription for payments
@@ -233,6 +300,221 @@ const Dashboard = () => {
     if (data?.payment_url) window.open(data.payment_url, '_blank');
     else toast({ title: 'Invoice created', description: 'Complete payment to add funds.' });
   };
+
+  // Search for user's tokens
+  const searchTokens = async (searchString: string) => {
+    if (!userId || !searchString.trim()) {
+      setTokenSearchResults([])
+      return
+    }
+    
+    setIsSearching(true)
+    try {
+      const { data, error } = await supabase
+        .from('tokens')
+        .select(`
+          id,
+          token_string,
+          credits,
+          product_id,
+          transactions!inner(
+            token_type,
+            product_id,
+            products(
+              name,
+              value_credits_usd
+            )
+          )
+        `)
+        .eq('user_id', userId)
+        .ilike('token_string', `%${searchString}%`)
+        .limit(10)
+      
+      if (error) {
+        console.error('Token search error:', error)
+        setTokenSearchResults([])
+        return
+      }
+      
+      setTokenSearchResults(data || [])
+    } catch (err) {
+      console.error('Token search unexpected error:', err)
+      setTokenSearchResults([])
+    } finally {
+      setIsSearching(false)
+    }
+  }
+  
+  // Calculate refill cost and credits
+  const calculateRefillCost = () => {
+    if (!selectedToken || !refillAmount) return { cost: 0, credits: 0 }
+    
+    const amount = parseFloat(refillAmount)
+    const feeUsd = 0.0001
+    
+    if (selectedToken.transactions.token_type === 'product') {
+      const valueCreditsUsd = selectedToken.transactions.products?.value_credits_usd || 0
+      
+      if (refillMode === 'usd') {
+        const availableForCredits = amount - feeUsd
+        const credits = Math.floor(availableForCredits / valueCreditsUsd)
+        return { cost: amount, credits }
+      } else {
+        const cost = (amount * valueCreditsUsd) + feeUsd
+        return { cost, credits: amount }
+      }
+    } else {
+      // Master token - only USD mode supported
+      if (refillMode === 'usd') {
+        // For master tokens: 1 USD = 1 credit (after fee deduction)
+        const availableForCredits = amount - feeUsd
+        const credits = Math.floor(availableForCredits) // 1:1 ratio
+        return { cost: amount, credits }
+      } else {
+        // This shouldn't happen due to validation, but return safe values
+        return { cost: 0, credits: 0 }
+      }
+    }
+  }
+  
+  const handleRefill = async () => {
+    if (!userId || !selectedToken || !refillAmount) return
+    
+         const amount = parseFloat(refillAmount)
+     if (amount <= 0) {
+       toast({ title: 'Please enter a valid refill amount' })
+       return
+     }
+     
+     // For Master Tokens, ensure only whole numbers
+     if (selectedToken.transactions.token_type === 'master' && !Number.isInteger(amount)) {
+       toast({ 
+         title: 'Invalid amount for Master Token', 
+         description: 'Master Tokens only accept whole USD amounts (1, 2, 3, etc.)' 
+       })
+       return
+     }
+    
+    // Check if master token is being used with credits mode (not supported)
+    if (selectedToken.transactions.token_type === 'master' && refillMode === 'credits') {
+      toast({ 
+        title: 'Invalid refill mode', 
+        description: 'Master tokens only support USD refill mode' 
+      })
+      return
+    }
+    
+    // Check if amount is sufficient to generate credits
+    const feeUsd = 0.0001
+    let minAmount = feeUsd
+    
+    if (selectedToken.transactions.token_type === 'product') {
+      const valueCreditsUsd = selectedToken.transactions.products?.value_credits_usd || 0
+      if (refillMode === 'usd') {
+        minAmount = feeUsd + valueCreditsUsd // Need at least fee + cost of 1 credit
+      } else {
+        minAmount = feeUsd // For credits mode, just need to cover the fee
+      }
+         } else {
+       // Master token: need fee + 1 USD for 1 credit (1:1 ratio)
+       minAmount = feeUsd + 1
+     }
+    
+    if (amount < minAmount) {
+      toast({ 
+        title: 'Amount too small', 
+        description: `Minimum amount required: $${minAmount.toFixed(4)}` 
+      })
+      return
+    }
+    
+    const { cost } = calculateRefillCost()
+    if (balanceUsd < cost) {
+      toast({ title: 'Insufficient balance', description: `Required: $${cost.toFixed(4)}, Available: $${balanceUsd.toFixed(2)}` })
+      return
+    }
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('refill-tokens', {
+        body: {
+          token_string: selectedToken.token_string,
+          refill_amount: amount,
+          refill_mode: refillMode,
+          token_type: selectedToken.transactions.token_type
+        }
+      })
+      
+      if (error) {
+        console.error('Refill error:', error)
+        console.error('Error details:', JSON.stringify(error, null, 2))
+        toast({ title: 'Error', description: error.message || 'Unknown error occurred' })
+        return
+      }
+      
+      if (data?.error) {
+        console.error('Function returned error:', data.error)
+        toast({ title: 'Error', description: data.error })
+        return
+      }
+      
+      toast({ title: 'Success', description: `Successfully refilled token! Added ${data.credits_added} credits.` })
+      
+      // Reset form
+      setRefillTokenString('')
+      setRefillAmount('')
+      setSelectedToken(null)
+      setTokenSearchResults([])
+      
+      // Refresh transactions
+      // Fetch regular transactions
+      const { data: t } = await supabase
+        .from('transactions')
+        .select('id,token_type,token_string,credits,usd_spent,product_id,created_at,token_count,mode')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      const normalized = (t || []).map((row: any) => ({
+        id: row.id,
+        token_type: row.token_type === 'master' ? 'master' : 'product',
+        token_string: row.token_string,
+        credits: row.credits,
+        usd_spent: row.usd_spent,
+        product_id: row.product_id ?? null,
+        created_at: row.created_at,
+        token_count: row.token_count,
+        mode: row.mode,
+      })) as Tx[];
+
+      // Fetch refill transactions
+      const { data: refillData } = await supabase
+        .from('refill_transactions')
+        .select('id,token_string,refill_mode,refill_amount,credits_added,usd_spent,fee_usd,credits_before,credits_after,created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      const normalizedRefillTxs = (refillData || []).map((row: any) => ({
+        id: row.id,
+        token_string: row.token_string,
+        refill_mode: row.refill_mode,
+        refill_amount: row.refill_amount,
+        credits_added: row.credits_added,
+        usd_spent: row.usd_spent,
+        fee_usd: row.fee_usd,
+        credits_before: row.credits_before,
+        credits_after: row.credits_after,
+        created_at: row.created_at,
+        type: 'refill' as const,
+      })) as RefillTx[];
+
+      // Combine and sort by date
+      const combinedTxs = [...normalized, ...normalizedRefillTxs].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      setTxs(combinedTxs);
+      
+    } catch (err) {
+      console.error('Unexpected refill error:', err)
+      toast({ title: 'An unexpected error occurred' })
+    }
+  }
 
   const handleGenerate = async () => {
     const count = parseInt(tokenCount) || 1;
@@ -461,7 +743,7 @@ const Dashboard = () => {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${confirmedUsd.toFixed(2)}</div>
+              <div className="text-2xl font-bold">${confirmedUsd.toFixed(4)}</div>
             </CardContent>
           </Card>
           <Card>
@@ -494,8 +776,9 @@ const Dashboard = () => {
         </div>
 
         <Tabs defaultValue="generate" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="generate">Generate Tokens</TabsTrigger>
+            <TabsTrigger value="refill">Refill Token</TabsTrigger>
             <TabsTrigger value="topup">Add Funds</TabsTrigger>
             <TabsTrigger value="transactions">Orders</TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
@@ -657,6 +940,167 @@ const Dashboard = () => {
             </Card>
           </TabsContent>
 
+          <TabsContent value="refill">
+            <Card>
+              <CardHeader>
+                <CardTitle>Refill Token</CardTitle>
+                <CardDescription>Add more credits or USD to an existing token</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="refill-token-string">Search Token</Label>
+                    <Input
+                      id="refill-token-string"
+                      type="text"
+                      placeholder="Enter token string to search..."
+                      value={refillTokenString}
+                      onChange={(e) => {
+                        setRefillTokenString(e.target.value)
+                        searchTokens(e.target.value)
+                      }}
+                    />
+                    {isSearching && (
+                      <p className="text-sm text-gray-500 mt-1">Searching...</p>
+                    )}
+                    
+                    {tokenSearchResults.length > 0 && (
+                      <div className="mt-2 border rounded-lg max-h-48 overflow-y-auto">
+                        {tokenSearchResults.map((token) => (
+                          <div
+                            key={token.id}
+                            className={`p-3 border-b last:border-b-0 cursor-pointer hover:bg-gray-50 ${
+                              selectedToken?.id === token.id ? 'bg-blue-50 border-blue-200' : ''
+                            }`}
+                            onClick={() => {
+                              setSelectedToken(token)
+                              setRefillTokenString(token.token_string)
+                              setTokenSearchResults([])
+                            }}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <p className="font-medium text-sm">{token.token_string}</p>
+                                <p className="text-xs text-gray-500">
+                                  Type: {token.transactions.token_type} | Credits: {token.credits}
+                                  {token.transactions.token_type === 'product' && token.transactions.products && (
+                                    <span> | Product: {token.transactions.products.name}</span>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {selectedToken && (
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                      <h4 className="font-medium text-sm mb-2">Selected Token</h4>
+                      <p className="text-sm"><strong>Token:</strong> {selectedToken.token_string}</p>
+                      <p className="text-sm"><strong>Type:</strong> {selectedToken.transactions.token_type}</p>
+                      {selectedToken.transactions.token_type === 'product' && selectedToken.transactions.products && (
+                        <p className="text-sm"><strong>Product:</strong> {selectedToken.transactions.products.name}</p>
+                      )}
+                    </div>
+                  )}
+                  
+                  {selectedToken && (
+                    <>
+                      {selectedToken.transactions.token_type === 'product' && (
+                        <div>
+                          <Label htmlFor="refill-mode">Refill Mode</Label>
+                          <Select value={refillMode} onValueChange={(value: 'usd' | 'credits') => setRefillMode(value)}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select refill mode" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="usd">USD</SelectItem>
+                              <SelectItem value="credits">Credits</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      
+                      <div>
+                         <Label htmlFor="refill-amount">
+                           {selectedToken.transactions.token_type === 'master' 
+                             ? 'Refill Amount (USD)' 
+                             : `Refill Amount (${refillMode === 'usd' ? 'USD' : 'Credits'})`
+                           }
+                         </Label>
+                                                   <Input
+                            id="refill-amount"
+                            type="number"
+                            step={selectedToken.transactions.token_type === 'master' ? "1" : (refillMode === 'usd' ? "0.01" : "1")}
+                            min="0"
+                            placeholder={
+                              selectedToken.transactions.token_type === 'master'
+                                ? 'Enter USD amount (whole numbers only)'
+                                : refillMode === 'usd' 
+                                  ? 'Enter USD amount' 
+                                  : 'Enter credits amount'
+                            }
+                            value={refillAmount}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              // Per i credits (modalità product + credits), permettere solo numeri interi
+                              if (selectedToken.transactions.token_type === 'product' && refillMode === 'credits') {
+                                // Permettere solo numeri interi (senza decimali)
+                                if (value === '' || /^\d+$/.test(value)) {
+                                  setRefillAmount(value);
+                                }
+                              } else if (selectedToken.transactions.token_type === 'master') {
+                                // Per Master Token: solo numeri interi (1 credito = 1 USD)
+                                if (value === '' || /^\d+$/.test(value)) {
+                                  setRefillAmount(value);
+                                }
+                              } else {
+                                // Per Product Token + USD mode: permettere decimali
+                                if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                  setRefillAmount(value);
+                                }
+                              }
+                            }}
+                          />
+                       </div>
+                      
+                      {refillAmount && (
+                        <div className="bg-gray-50 p-4 rounded-lg">
+                          <h4 className="font-medium text-sm mb-2">Refill Preview</h4>
+                          {(() => {
+                            const { cost, credits } = calculateRefillCost()
+                            const isMasterToken = selectedToken.transactions.token_type === 'master'
+                            return (
+                              <div className="space-y-1 text-sm">
+                                <p><strong>Amount:</strong> {refillAmount} {isMasterToken ? 'USD' : (refillMode === 'usd' ? 'USD' : 'Credits')}</p>
+                                {!isMasterToken && <p><strong>Credits to Add:</strong> {credits}</p>}
+                                <p><strong>Fee:</strong> $0.0001</p>
+                                <p><strong>Total Cost:</strong> ${cost.toFixed(4)}</p>
+                                <p className="text-gray-600">Available Balance: ${balanceUsd.toFixed(4)}</p>
+                                <p className="text-gray-600">Remaining Balance: ${(balanceUsd - cost).toFixed(4)}</p>
+                              </div>
+                            )
+                          })()}
+                        </div>
+                      )}
+                      
+                      <Button 
+                        onClick={handleRefill} 
+                        disabled={!selectedToken || !refillAmount}
+                        className="w-full"
+                        size="lg"
+                      >
+                        Refill Token
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="topup">
             <Card>
               <CardHeader>
@@ -703,33 +1147,66 @@ const Dashboard = () => {
                   {txs.length === 0 ? (
                     <p className="text-center text-slate-500 py-8">No transactions yet</p>
                   ) : (
-                    txs.map((tx) => (
-                      <div key={tx.id} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <Badge variant={tx.token_type === 'master' ? 'default' : 'secondary'}>
-                                {tx.token_type}
-                              </Badge>
-                              <span className="font-mono text-sm">{tx.token_string}</span>
+                    txs.map((tx) => {
+                      const isRefill = 'type' in tx && tx.type === 'refill';
+                      return (
+                        <div key={tx.id} className="border rounded-lg p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                                                             <div className="flex items-center gap-2 mb-2">
+                                 {isRefill ? (
+                                   <>
+                                     <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                       REFILL
+                                     </Badge>
+                                     <Badge variant="secondary">
+                                       {tx.refill_mode.toUpperCase()}
+                                     </Badge>
+                                   </>
+                                 ) : (
+                                   <Badge variant={tx.token_type === 'master' ? 'default' : 'secondary'}>
+                                     {tx.token_type}
+                                   </Badge>
+                                 )}
+                                 {!isRefill ? (
+                                   <span className="font-mono text-sm">{tx.token_string}</span>
+                                 ) : (
+                                   <span className="font-mono text-sm">
+                                     {tx.transactions?.token_type === 'master' ? 'Token Master: ' : 'Token Product: '}
+                                     {tx.token_string}
+                                   </span>
+                                 )}
+                               </div>
+                                                             <div className="text-sm text-slate-600 space-y-1">
+                                 <div>Date: {formatDate(tx.created_at)}</div>
+                                 <div>Cost: ${tx.usd_spent.toFixed(4)}</div>
+                                 {isRefill ? (
+                                   <>
+                                     {tx.transactions?.token_type === 'product' && <div>Credits Added: {tx.credits_added}</div>}
+                                     <div>Refill Amount: {tx.refill_mode === 'usd' ? `$${tx.refill_amount}` : `${tx.refill_amount} credits`}</div>
+                                     {tx.fee_usd > 0 && <div>Fee: ${tx.fee_usd.toFixed(4)}</div>}
+                                   </>
+                                 ) : (
+                                   <>
+                                     {tx.credits > 0 && <div>Credits: {tx.credits}</div>}
+                                     {tx.token_count && tx.token_count > 1 && <div>Batch Size: {tx.token_count}</div>}
+                                   </>
+                                 )}
+                               </div>
                             </div>
-                            <div className="text-sm text-slate-600 space-y-1">
-                              <div>Created: {formatDate(tx.created_at)}</div>
-                              <div>Cost: ${tx.usd_spent.toFixed(6)}</div>
-                              {tx.credits > 0 && <div>Credits: {tx.credits}</div>}
-                              {tx.token_count && tx.token_count > 1 && <div>Batch Size: {tx.token_count}</div>}
-                            </div>
+                            {!isRefill && (
+                              <Button
+                                onClick={() => exportTokens(tx.id)}
+                                variant="outline"
+                                size="sm"
+                              >
+                                <Download className="w-4 h-4" />
+                              </Button>
+                            )}
                           </div>
-                          <Button
-                            onClick={() => exportTokens(tx.id)}
-                            variant="outline"
-                            size="sm"
-                          >
-                            <Download className="w-4 h-4" />
-                          </Button>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </CardContent>
@@ -782,7 +1259,7 @@ const Dashboard = () => {
                                 <Badge className={getStatusColor(payment.status || '')}>
                                   {payment.status}
                                 </Badge>
-                                <span className="font-semibold">${payment.amount_usd?.toFixed(2)}</span>
+                                <span className="font-semibold">${payment.amount_usd?.toFixed(4)}</span>
                                 {payment.pay_currency && (
                                   <Badge variant="outline">{payment.pay_currency}</Badge>
                                 )}
