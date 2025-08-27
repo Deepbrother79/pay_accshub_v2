@@ -10,8 +10,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Download, Plus, DollarSign, Coins, CreditCard, Users, RefreshCw, User, ShoppingCart } from "lucide-react";
+import { Download, Plus, DollarSign, Coins, CreditCard, Users, RefreshCw, User, ShoppingCart, Newspaper } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 type Product = { product_id: string; name: string; value_credits_usd: number };
 
@@ -62,6 +64,9 @@ const Dashboard = () => {
   const [flashingPaymentId, setFlashingPaymentId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshingTransactions, setIsRefreshingTransactions] = useState(false);
+  const [showNewsPopup, setShowNewsPopup] = useState(false);
+  const [news, setNews] = useState<any[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
 
   const [topup, setTopup] = useState<string>("");
 
@@ -600,6 +605,31 @@ const Dashboard = () => {
     }
   }
 
+  // Function to fetch news
+  const fetchNews = async () => {
+    setNewsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('Notification_Webapp')
+        .select('*')
+        .eq('visible', true)
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching news:', error);
+        toast({ title: 'Error loading news', variant: 'destructive' });
+        return;
+      }
+      
+      setNews(data || []);
+    } catch (err) {
+      console.error('Unexpected error fetching news:', err);
+      toast({ title: 'Error loading news', variant: 'destructive' });
+    } finally {
+      setNewsLoading(false);
+    }
+  };
+
   const handleGenerate = async () => {
     const count = parseInt(tokenCount) || 1;
     if (count < 1 || count > 1000) return toast({ title: 'Token count must be between 1 and 1000' });
@@ -772,6 +802,18 @@ const Dashboard = () => {
             >
               <ShoppingCart className="w-4 h-4 mr-2" />
               HUB API
+            </Button>
+            <Button 
+              variant="default" 
+              size="lg"
+              onClick={() => {
+                setShowNewsPopup(true);
+                fetchNews();
+              }}
+              className="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 flex items-center gap-2"
+            >
+              <Newspaper className="w-4 h-4" />
+              NEWS
             </Button>
             <Button 
               variant="default" 
@@ -1388,6 +1430,59 @@ const Dashboard = () => {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* News Popup */}
+        <Dialog open={showNewsPopup} onOpenChange={setShowNewsPopup}>
+          <DialogContent className="max-w-2xl max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Newspaper className="w-5 h-5" />
+                Latest News & Notifications
+              </DialogTitle>
+              <DialogDescription>
+                Stay updated with the latest announcements and important information
+              </DialogDescription>
+            </DialogHeader>
+            
+            <ScrollArea className="max-h-[60vh] pr-4">
+              {newsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <RefreshCw className="w-6 h-6 animate-spin mr-2" />
+                  Loading news...
+                </div>
+              ) : news.length === 0 ? (
+                <div className="text-center py-8 text-slate-500">
+                  <Newspaper className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  No news available at the moment
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {news.map((item, index) => (
+                    <div key={item.id} className="border rounded-lg p-4 bg-slate-50">
+                      <div className="flex items-start justify-between mb-2">
+                        <h3 className="font-semibold text-lg text-slate-900">
+                          {item.Title || `Notification #${index + 1}`}
+                        </h3>
+                        <div className="text-sm text-slate-500">
+                          {formatDate(item.created_at)}
+                        </div>
+                      </div>
+                      <div className="text-slate-700 whitespace-pre-wrap leading-relaxed">
+                        {item.Content || 'No content available'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+            
+            <div className="flex justify-end pt-4 border-t">
+              <Button onClick={() => setShowNewsPopup(false)} variant="outline">
+                Close
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </main>
   );
