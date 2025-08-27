@@ -792,7 +792,7 @@ const Dashboard = () => {
             <p className="text-slate-600 mt-2">Manage your tokens and API access</p>
           </div>
           <div className="flex items-center gap-3">
-            {/* Header navigation buttons */}
+            {/* Header navigation buttons - Vercel deploy test */}}
             <Button 
               variant="default" 
               size="lg"
