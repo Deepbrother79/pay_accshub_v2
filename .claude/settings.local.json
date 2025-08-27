@@ -5,7 +5,10 @@
       "mcp__supabase__apply_migration",
       "mcp__supabase__list_tables",
       "mcp__supabase__get_advisors",
-      "mcp__supabase__list_edge_functions"
+      "mcp__supabase__list_edge_functions",
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
