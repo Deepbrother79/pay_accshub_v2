@@ -1,22 +1,16 @@
-# Welcome to your Lovable project
+# Pay AccsHub - Token Management System
 
 ## Project info
 
-**URL**: https://lovable.dev/projects/0898986f-c3d0-484a-ae7b-036f5ad9aaba
+**URL**: https://shop.accshub.org/
 
 ## How can I edit this code?
 
 There are several ways of editing your application.
 
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/0898986f-c3d0-484a-ae7b-036f5ad9aaba) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
 **Use your preferred IDE**
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+If you want to work locally using your own IDE, you can clone this repo and push changes.
 
 The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
 
@@ -59,15 +53,17 @@ This project is built with:
 - React
 - shadcn-ui
 - Tailwind CSS
+- Supabase
 
 ## How can I deploy this project?
 
-Simply open [Lovable](https://lovable.dev/projects/0898986f-c3d0-484a-ae7b-036f5ad9aaba) and click on Share -> Publish.
+You can deploy this project using Vercel, Netlify, or any other hosting platform that supports React applications.
 
-## Can I connect a custom domain to my Lovable project?
+## Features
 
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+- Token generation and management
+- Payment integration with NowPayments
+- User authentication
+- Real-time balance tracking
+- Token refill functionality
+- Export capabilities

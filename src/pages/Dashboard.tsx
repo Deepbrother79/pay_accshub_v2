@@ -61,6 +61,7 @@ const Dashboard = () => {
   const [txs, setTxs] = useState<CombinedTx[]>([]);
   const [flashingPaymentId, setFlashingPaymentId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRefreshingTransactions, setIsRefreshingTransactions] = useState(false);
 
   const [topup, setTopup] = useState<string>("");
 
@@ -127,11 +128,12 @@ const Dashboard = () => {
     setMode('usd');
   }, [type]);
 
-  useEffect(() => {
+  // Function to refresh transaction data
+  const refreshTransactions = async () => {
     if (!userId) return;
     
-    // Fetch initial data
-    (async () => {
+    try {
+      // Fetch payment history
       const { data: pays } = await supabase
         .from('payment_history')
         .select('id,status,amount_usd,created_at,currency,pay_currency,raw,order_id')
@@ -180,7 +182,75 @@ const Dashboard = () => {
         (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
       setTxs(combinedTxs);
-    })();
+      
+      toast({ title: 'Data refreshed successfully' });
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      toast({ title: 'Error refreshing data', variant: 'destructive' });
+    }
+  };
+
+  // Function to refresh only transaction data (for Orders History section)
+  const refreshTransactionsOnly = async () => {
+    if (!userId) return;
+    
+    setIsRefreshingTransactions(true);
+    try {
+      // Fetch regular transactions
+      const { data: t } = await supabase
+        .from('transactions')
+        .select('id,token_type,token_string,credits,usd_spent,product_id,created_at,token_count,mode')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      const normalizedTxs = (t || []).map((row: any) => ({
+        id: row.id,
+        token_type: row.token_type === 'master' ? 'master' : 'product',
+        token_string: row.token_string,
+        credits: row.credits,
+        usd_spent: row.usd_spent,
+        product_id: row.product_id ?? null,
+        created_at: row.created_at,
+        token_count: row.token_count,
+        mode: row.mode,
+      })) as Tx[];
+
+      // Fetch refill transactions
+      const { data: refillData } = await supabase
+        .from('refill_transactions')
+        .select('id,token_string,refill_mode,refill_amount,credits_added,usd_spent,fee_usd,credits_before,credits_after,created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      const normalizedRefillTxs = (refillData || []).map((row: any) => ({
+        id: row.id,
+        token_string: row.token_string,
+        refill_mode: row.refill_mode,
+        refill_amount: row.refill_amount,
+        credits_added: row.credits_added,
+        usd_spent: row.usd_spent,
+        fee_usd: row.fee_usd,
+        credits_before: row.credits_before,
+        credits_after: row.credits_after,
+        created_at: row.created_at,
+        type: 'refill' as const,
+      })) as RefillTx[];
+
+      // Combine and sort by date
+      const combinedTxs = [...normalizedTxs, ...normalizedRefillTxs].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      setTxs(combinedTxs);
+      
+      toast({ title: 'Orders history refreshed' });
+    } catch (error) {
+      console.error('Error refreshing transactions:', error);
+      toast({ title: 'Failed to refresh orders', variant: 'destructive' });
+    } finally {
+      setIsRefreshingTransactions(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshTransactions();
 
     // Setup realtime subscription for payments
     const channel = supabase
@@ -369,7 +439,8 @@ const Dashboard = () => {
         // For master tokens: 1 USD = 1 credit (after fee deduction)
         const availableForCredits = amount - feeUsd
         const credits = Math.floor(availableForCredits) // 1:1 ratio
-        return { cost: amount, credits }
+        const totalCost = amount + feeUsd // Include fee in total cost
+        return { cost: totalCost, credits }
       } else {
         // This shouldn't happen due to validation, but return safe values
         return { cost: 0, credits: 0 }
@@ -380,20 +451,20 @@ const Dashboard = () => {
   const handleRefill = async () => {
     if (!userId || !selectedToken || !refillAmount) return
     
-         const amount = parseFloat(refillAmount)
-     if (amount <= 0) {
-       toast({ title: 'Please enter a valid refill amount' })
-       return
-     }
-     
-     // For Master Tokens, ensure only whole numbers
-     if (selectedToken.transactions.token_type === 'master' && !Number.isInteger(amount)) {
-       toast({ 
-         title: 'Invalid amount for Master Token', 
-         description: 'Master Tokens only accept whole USD amounts (1, 2, 3, etc.)' 
-       })
-       return
-     }
+    const amount = parseFloat(refillAmount)
+    if (amount <= 0) {
+      toast({ title: 'Please enter a valid refill amount' })
+      return
+    }
+    
+    // For Master Tokens, ensure only whole numbers
+    if (selectedToken.transactions.token_type === 'master' && !Number.isInteger(amount)) {
+      toast({ 
+        title: 'Invalid amount for Master Token', 
+        description: 'Master Tokens only accept whole USD amounts (1, 2, 3, etc.)' 
+      })
+      return
+    }
     
     // Check if master token is being used with credits mode (not supported)
     if (selectedToken.transactions.token_type === 'master' && refillMode === 'credits') {
@@ -406,26 +477,34 @@ const Dashboard = () => {
     
     // Check if amount is sufficient to generate credits
     const feeUsd = 0.0001
-    let minAmount = feeUsd
     
-    if (selectedToken.transactions.token_type === 'product') {
+    // FIXED: Per i master token, l'amount inserito dall'utente rappresenta i crediti desiderati
+    if (selectedToken.transactions.token_type === 'master') {
+      if (amount < 1) {
+        toast({ 
+          title: 'Amount too small', 
+          description: `Minimum amount: $1 (plus $${feeUsd.toFixed(4)} fee = $${(1 + feeUsd).toFixed(4)} total)` 
+        })
+        return
+      }
+    } else {
+      // For product tokens, validate based on refill mode
       const valueCreditsUsd = selectedToken.transactions.products?.value_credits_usd || 0
+      let minAmount = feeUsd
+      
       if (refillMode === 'usd') {
         minAmount = feeUsd + valueCreditsUsd // Need at least fee + cost of 1 credit
       } else {
         minAmount = feeUsd // For credits mode, just need to cover the fee
       }
-         } else {
-       // Master token: need fee + 1 USD for 1 credit (1:1 ratio)
-       minAmount = feeUsd + 1
-     }
-    
-    if (amount < minAmount) {
-      toast({ 
-        title: 'Amount too small', 
-        description: `Minimum amount required: $${minAmount.toFixed(4)}` 
-      })
-      return
+      
+      if (amount < minAmount) {
+        toast({ 
+          title: 'Amount too small', 
+          description: `Minimum amount required: $${minAmount.toFixed(4)}` 
+        })
+        return
+      }
     }
     
     const { cost } = calculateRefillCost()
@@ -435,7 +514,12 @@ const Dashboard = () => {
     }
     
     try {
-      const { data, error } = await supabase.functions.invoke('refill-tokens', {
+      // Use different edge function based on token type
+      const functionName = selectedToken.transactions.token_type === 'master' 
+        ? 'refill-tokens-master' 
+        : 'refill-tokens';
+      
+      const { data, error } = await supabase.functions.invoke(functionName, {
         body: {
           token_string: selectedToken.token_string,
           refill_amount: amount,
@@ -683,7 +767,7 @@ const Dashboard = () => {
             <Button 
               variant="default" 
               size="lg"
-              onClick={() => window.open('https://token-transaction-hub.vercel.app/', '_blank')}
+              onClick={() => window.open('https://shop.accshub.org/', '_blank')}
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2"
             >
               <ShoppingCart className="w-4 h-4 mr-2" />
@@ -843,12 +927,21 @@ const Dashboard = () => {
                       <Label htmlFor="tokenCount">Number of Tokens</Label>
                       <Input
                         id="tokenCount"
-                        type="number"
-                        min="1"
-                        max="1000"
+                        type="text"
                         value={tokenCount}
-                        onChange={(e) => setTokenCount(e.target.value)}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          // Allow only positive integers (no decimals, dots, commas)
+                          if (value === '' || /^[1-9]\d*$/.test(value)) {
+                            const numValue = parseInt(value);
+                            if (value === '' || (numValue >= 1 && numValue <= 1000)) {
+                              setTokenCount(value);
+                            }
+                          }
+                        }}
                         placeholder="1"
+                        pattern="[1-9]\d*"
+                        title="Enter a whole number between 1 and 1000"
                       />
                     </div>
                   </div>
@@ -982,7 +1075,7 @@ const Dashboard = () => {
                               <div>
                                 <p className="font-medium text-sm">{token.token_string}</p>
                                 <p className="text-xs text-gray-500">
-                                  Type: {token.transactions.token_type} | Credits: {token.credits}
+                                  Type: {token.transactions.token_type}
                                   {token.transactions.token_type === 'product' && token.transactions.products && (
                                     <span> | Product: {token.transactions.products.name}</span>
                                   )}
@@ -1134,7 +1227,18 @@ const Dashboard = () => {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle>Orders History</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    Orders History
+                    <Button 
+                      onClick={refreshTransactionsOnly} 
+                      variant="ghost" 
+                      size="sm"
+                      disabled={isRefreshingTransactions}
+                      className="h-6 w-6 p-0"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isRefreshingTransactions ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </CardTitle>
                   <CardDescription>Your tokens generation history</CardDescription>
                 </div>
                 <Button onClick={() => exportTokens()} variant="outline">
@@ -1183,7 +1287,7 @@ const Dashboard = () => {
                                  {isRefill ? (
                                    <>
                                      {tx.transactions?.token_type === 'product' && <div>Credits Added: {tx.credits_added}</div>}
-                                     <div>Refill Amount: {tx.refill_mode === 'usd' ? `$${tx.refill_amount}` : `${tx.refill_amount} credits`}</div>
+                                     <div>Refill Amount: {tx.refill_mode === 'usd' ? `${tx.refill_amount}` : `${tx.refill_amount} credits`}</div>
                                      {tx.fee_usd > 0 && <div>Fee: ${tx.fee_usd.toFixed(4)}</div>}
                                    </>
                                  ) : (
