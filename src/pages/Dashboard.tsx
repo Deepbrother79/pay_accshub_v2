@@ -12,8 +12,6 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Download, Plus, DollarSign, Coins, CreditCard, Users, RefreshCw, User, ShoppingCart, Newspaper } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 type Product = { product_id: string; name: string; value_credits_usd: number };
 
@@ -1432,58 +1430,66 @@ const Dashboard = () => {
           </TabsContent>
         </Tabs>
 
-        {/* News Popup */}
-        <Dialog open={showNewsPopup} onOpenChange={setShowNewsPopup}>
-          <DialogContent className="max-w-2xl max-h-[80vh]">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Newspaper className="w-5 h-5" />
-                Latest News & Notifications
-              </DialogTitle>
-              <DialogDescription>
-                Stay updated with the latest announcements and important information
-              </DialogDescription>
-            </DialogHeader>
-            
-            <ScrollArea className="max-h-[60vh] pr-4">
-              {newsLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <RefreshCw className="w-6 h-6 animate-spin mr-2" />
-                  Loading news...
+        {/* News Popup - Simple Modal */}
+        {showNewsPopup && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between p-6 border-b">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Newspaper className="w-5 h-5" />
+                    <h2 className="text-xl font-semibold">Latest News & Notifications</h2>
+                  </div>
+                  <p className="text-sm text-slate-600">
+                    Stay updated with the latest announcements and important information
+                  </p>
                 </div>
-              ) : news.length === 0 ? (
-                <div className="text-center py-8 text-slate-500">
-                  <Newspaper className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  No news available at the moment
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {news.map((item, index) => (
-                    <div key={item.id} className="border rounded-lg p-4 bg-slate-50">
-                      <div className="flex items-start justify-between mb-2">
-                        <h3 className="font-semibold text-lg text-slate-900">
-                          {item.Title || `Notification #${index + 1}`}
-                        </h3>
-                        <div className="text-sm text-slate-500">
-                          {formatDate(item.created_at)}
+                <Button 
+                  onClick={() => setShowNewsPopup(false)} 
+                  variant="outline" 
+                  size="sm"
+                  className="ml-4"
+                >
+                  Close
+                </Button>
+              </div>
+              
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-6">
+                {newsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <RefreshCw className="w-6 h-6 animate-spin mr-2" />
+                    Loading news...
+                  </div>
+                ) : news.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <Newspaper className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    No news available at the moment
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {news.map((item, index) => (
+                      <div key={item.id} className="border rounded-lg p-4 bg-slate-50">
+                        <div className="flex items-start justify-between mb-2">
+                          <h3 className="font-semibold text-lg text-slate-900">
+                            {item.Title || `Notification #${index + 1}`}
+                          </h3>
+                          <div className="text-sm text-slate-500">
+                            {formatDate(item.created_at)}
+                          </div>
+                        </div>
+                        <div className="text-slate-700 whitespace-pre-wrap leading-relaxed">
+                          {item.Content || 'No content available'}
                         </div>
                       </div>
-                      <div className="text-slate-700 whitespace-pre-wrap leading-relaxed">
-                        {item.Content || 'No content available'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </ScrollArea>
-            
-            <div className="flex justify-end pt-4 border-t">
-              <Button onClick={() => setShowNewsPopup(false)} variant="outline">
-                Close
-              </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          </DialogContent>
-        </Dialog>
+          </div>
+        )}
       </div>
     </main>
   );
