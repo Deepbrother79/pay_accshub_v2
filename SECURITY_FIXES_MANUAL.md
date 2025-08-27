@@ -4,20 +4,32 @@
 
 ### 1. 🚨 **PRIORITÀ MASSIMA: RLS su Notification_Webapp**
 
-**ESEGUI SUBITO questo file di migrazione:**
-```bash
-# Naviga nella directory del progetto
-cd supabase
+**SCEGLI UNA DELLE DUE OPZIONI:**
 
-# Esegui la migrazione di sicurezza
-supabase db reset --linked
-# OPPURE esegui manualmente il file SQL:
-```
-
-**Oppure esegui manualmente nel SQL Editor di Supabase:**
+#### 🎯 **OPZIONE A: ULTRA SICURA (CONSIGLIATA)**
 ```sql
--- Il contenuto è nel file: supabase/migrations/fix_notification_webapp_security.sql
+-- Copia e incolla questo nel SQL Editor di Supabase:
+-- (File: supabase/migrations/simple_notification_fix.sql)
+
+ALTER TABLE public."Notification_Webapp" ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "read_visible_notifications" ON public."Notification_Webapp"
+FOR SELECT USING (visible = true AND auth.uid() IS NOT NULL);
+
+CREATE POLICY "service_role_only_modify" ON public."Notification_Webapp"
+FOR ALL USING (auth.jwt() ->> 'role' = 'service_role');
+
+GRANT SELECT ON public."Notification_Webapp" TO authenticated;
 ```
+
+#### 🔧 **OPZIONE B: AVANZATA**
+```sql
+-- Se vuoi gestione admin più complessa:
+-- (File: supabase/migrations/fix_notification_webapp_security.sql)
+-- Usa questo solo se hai bisogno di accesso admin diretto
+```
+
+**NON usare supabase db reset per evitare perdita dati!**
 
 ### 2. 🟡 **CONFIGURAZIONI AUTH (Pannello Supabase)**
 
