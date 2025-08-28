@@ -1,5 +1,7 @@
 # Pay AccsHub - Token Management System
 
+> Modern React application for comprehensive token management and payment processing
+
 ## Project info
 
 **URL**: https://shop.accshub.org/
