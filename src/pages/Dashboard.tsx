@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Download, Plus, DollarSign, Coins, CreditCard, Users, RefreshCw, User, ShoppingCart } from "lucide-react";
+import { Download, Plus, DollarSign, Coins, CreditCard, Users, RefreshCw, User, ShoppingCart, Newspaper } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 type Product = { product_id: string; name: string; value_credits_usd: number };
@@ -62,6 +62,9 @@ const Dashboard = () => {
   const [flashingPaymentId, setFlashingPaymentId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshingTransactions, setIsRefreshingTransactions] = useState(false);
+  const [showNewsPopup, setShowNewsPopup] = useState(false);
+  const [news, setNews] = useState<any[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
 
   const [topup, setTopup] = useState<string>("");
 
@@ -600,6 +603,31 @@ const Dashboard = () => {
     }
   }
 
+  // Function to fetch news
+  const fetchNews = async () => {
+    setNewsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('Notification_Webapp')
+        .select('*')
+        .eq('visible', true)
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching news:', error);
+        toast({ title: 'Error loading news', variant: 'destructive' });
+        return;
+      }
+      
+      setNews(data || []);
+    } catch (err) {
+      console.error('Unexpected error fetching news:', err);
+      toast({ title: 'Error loading news', variant: 'destructive' });
+    } finally {
+      setNewsLoading(false);
+    }
+  };
+
   const handleGenerate = async () => {
     const count = parseInt(tokenCount) || 1;
     if (count < 1 || count > 1000) return toast({ title: 'Token count must be between 1 and 1000' });
@@ -764,6 +792,7 @@ const Dashboard = () => {
             <p className="text-slate-600 mt-2">Manage your tokens and API access</p>
           </div>
           <div className="flex items-center gap-3">
+            {/* Header navigation buttons - Vercel deploy test */}
             <Button 
               variant="default" 
               size="lg"
@@ -772,6 +801,18 @@ const Dashboard = () => {
             >
               <ShoppingCart className="w-4 h-4 mr-2" />
               HUB API
+            </Button>
+            <Button 
+              variant="default" 
+              size="lg"
+              onClick={() => {
+                setShowNewsPopup(true);
+                fetchNews();
+              }}
+              className="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 flex items-center gap-2"
+            >
+              <Newspaper className="w-4 h-4" />
+              NEWS
             </Button>
             <Button 
               variant="default" 
@@ -1388,6 +1429,67 @@ const Dashboard = () => {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* News Popup - Simple Modal */}
+        {showNewsPopup && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between p-6 border-b">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Newspaper className="w-5 h-5" />
+                    <h2 className="text-xl font-semibold">Latest News & Notifications</h2>
+                  </div>
+                  <p className="text-sm text-slate-600">
+                    Stay updated with the latest announcements and important information
+                  </p>
+                </div>
+                <Button 
+                  onClick={() => setShowNewsPopup(false)} 
+                  variant="outline" 
+                  size="sm"
+                  className="ml-4"
+                >
+                  Close
+                </Button>
+              </div>
+              
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-6">
+                {newsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <RefreshCw className="w-6 h-6 animate-spin mr-2" />
+                    Loading news...
+                  </div>
+                ) : news.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <Newspaper className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    No news available at the moment
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {news.map((item, index) => (
+                      <div key={item.id} className="border rounded-lg p-4 bg-slate-50">
+                        <div className="flex items-start justify-between mb-2">
+                          <h3 className="font-semibold text-lg text-slate-900">
+                            {item.Title || `Notification #${index + 1}`}
+                          </h3>
+                          <div className="text-sm text-slate-500">
+                            {formatDate(item.created_at)}
+                          </div>
+                        </div>
+                        <div className="text-slate-700 whitespace-pre-wrap leading-relaxed">
+                          {item.Content || 'No content available'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
