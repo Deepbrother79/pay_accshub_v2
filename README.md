@@ -1,6 +1,6 @@
 # Pay AccsHub - Token Management System
 
-> Modern React application for comprehensive token management and payment processing
+> Modern React application for comprehensive token management and payment processing with crypto payment integration
 
 ## Project info
 
