@@ -12,7 +12,12 @@
       "Bash(npm run build:*)",
       "Bash(npm run lint)",
       "Bash(git config:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(supabase status:*)",
+      "Bash(supabase start:*)",
+      "Bash(supabase functions list:*)",
+      "Bash(supabase functions download:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []

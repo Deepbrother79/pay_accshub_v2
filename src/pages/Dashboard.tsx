@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -76,6 +76,9 @@ const Dashboard = () => {
   const [tokenCount, setTokenCount] = useState<string>("1");
   const [prefixMode, setPrefixMode] = useState<'auto'|'custom'>('auto');
   const [prefixInput, setPrefixInput] = useState<string>("");
+  const [productSearch, setProductSearch] = useState<string>("");
+  const [showProductDropdown, setShowProductDropdown] = useState(false);
+  const productDropdownRef = useRef<HTMLDivElement>(null);
   
   // Refill Token states
   const [refillTokenType, setRefillTokenType] = useState<'product' | 'master'>('product')
@@ -128,6 +131,7 @@ const Dashboard = () => {
     setUsd('');
     setCredits('');
     setProductId('');
+    setProductSearch('');
     setMode('usd');
   }, [type]);
 
@@ -252,6 +256,20 @@ const Dashboard = () => {
     }
   };
 
+  // Handle click outside to close product dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (productDropdownRef.current && !productDropdownRef.current.contains(event.target as Node)) {
+        setShowProductDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   useEffect(() => {
     refreshTransactions();
 
@@ -344,6 +362,14 @@ const Dashboard = () => {
   }, [type, productId, products, tokenCount, mode, usd, credits]);
 
   // Calculate single token credits preview for Product Token + USD mode
+  // Filter products based on search input
+  const filteredProducts = useMemo(() => {
+    if (!productSearch.trim()) return products;
+    return products.filter(p => 
+      p.name.toLowerCase().includes(productSearch.toLowerCase())
+    );
+  }, [products, productSearch]);
+
   const singleTokenCredits = useMemo(() => {
     if (type === 'product' && mode === 'usd' && productId && usd) {
       const prod = products.find(p => p.product_id === productId);
@@ -932,20 +958,88 @@ const Dashboard = () => {
                     </div>
 
                     {type === 'product' && (
-                      <div>
+                      <div className="space-y-2" ref={productDropdownRef}>
                         <Label htmlFor="product">Product</Label>
-                        <Select value={productId} onValueChange={setProductId}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a product" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {products.map(p => (
-                              <SelectItem key={p.product_id} value={p.product_id}>
-                                {p.name} (${p.value_credits_usd}/credit)
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        
+                        {/* Search Input */}
+                        <div className="relative">
+                          <Input
+                            id="product-search"
+                            type="text"
+                            placeholder="Type to search products..."
+                            value={productSearch}
+                            onChange={(e) => {
+                              setProductSearch(e.target.value);
+                              setShowProductDropdown(true);
+                            }}
+                            onFocus={() => setShowProductDropdown(true)}
+                            className="pr-10"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0"
+                            onClick={() => setShowProductDropdown(!showProductDropdown)}
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showProductDropdown ? "M5 15l7-7 7 7" : "M19 9l-7 7-7-7"} />
+                            </svg>
+                          </Button>
+                        </div>
+
+                        {/* Dropdown with filtered products */}
+                        {showProductDropdown && (
+                          <div className="relative">
+                            <div className="absolute top-0 left-0 right-0 z-10 bg-white border border-gray-200 rounded-md shadow-lg max-h-64 overflow-y-auto">
+                              {filteredProducts.length === 0 ? (
+                                <div className="p-3 text-sm text-gray-500 text-center">
+                                  No products found
+                                </div>
+                              ) : (
+                                filteredProducts.map(p => (
+                                  <div
+                                    key={p.product_id}
+                                    className={`p-3 cursor-pointer hover:bg-gray-50 border-b last:border-b-0 ${
+                                      productId === p.product_id ? 'bg-blue-50 text-blue-700' : ''
+                                    }`}
+                                    onClick={() => {
+                                      setProductId(p.product_id);
+                                      setProductSearch(p.name);
+                                      setShowProductDropdown(false);
+                                    }}
+                                  >
+                                    <div className="font-medium text-sm">{p.name}</div>
+                                    <div className="text-xs text-gray-500">${p.value_credits_usd}/credit</div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Traditional Select as fallback */}
+                        <div className="pt-2">
+                          <Label htmlFor="product-select" className="text-sm text-gray-600">Or choose from dropdown:</Label>
+                          <Select value={productId} onValueChange={(value) => {
+                            setProductId(value);
+                            const selectedProduct = products.find(p => p.product_id === value);
+                            if (selectedProduct) {
+                              setProductSearch(selectedProduct.name);
+                            }
+                          }}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a product" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {products.map(p => (
+                                <SelectItem key={p.product_id} value={p.product_id}>
+                                  {p.name} (${p.value_credits_usd}/credit)
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     )}
 
