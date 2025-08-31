@@ -822,6 +822,14 @@ const Dashboard = () => {
             <Button 
               variant="default" 
               size="lg"
+              onClick={() => window.open('https://market.accshub.org/', '_blank')}
+              className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-2 lg:px-6 lg:py-3 text-sm lg:text-base"
+            >
+              Reseller HUB
+            </Button>
+            <Button 
+              variant="default" 
+              size="lg"
               onClick={() => window.open('https://shop.accshub.org/', '_blank')}
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2"
             >

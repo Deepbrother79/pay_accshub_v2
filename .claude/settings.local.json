@@ -17,7 +17,8 @@
       "Bash(supabase start:*)",
       "Bash(supabase functions list:*)",
       "Bash(supabase functions download:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []
