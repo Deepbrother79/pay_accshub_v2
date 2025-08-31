@@ -6,7 +6,7 @@ const Index = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="text-center space-y-6 px-4">
-        <h1 className="text-4xl font-bold">Token Transaction Hub</h1>
+        <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Dashboard HUB</h1>
         <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
           Secure login, USD top-ups via NowPayments, and token generation from your dashboard.
         </p>

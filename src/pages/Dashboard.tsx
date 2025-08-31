@@ -10,8 +10,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Download, Plus, DollarSign, Coins, CreditCard, Users, RefreshCw, User, ShoppingCart, Newspaper } from "lucide-react";
+import { Download, Plus, DollarSign, Coins, CreditCard, Users, RefreshCw, User, ShoppingCart, Newspaper, HelpCircle } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import FAQ from "@/components/FAQ";
 
 type Product = { product_id: string; name: string; value_credits_usd: number };
 
@@ -65,6 +66,7 @@ const Dashboard = () => {
   const [showNewsPopup, setShowNewsPopup] = useState(false);
   const [news, setNews] = useState<any[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
+  const [showFAQPopup, setShowFAQPopup] = useState(false);
 
   const [topup, setTopup] = useState<string>("");
 
@@ -814,7 +816,7 @@ const Dashboard = () => {
       <div className="mx-auto max-w-7xl space-y-8">
         <header className="flex items-center justify-between">
           <div>
-            <h1 className="text-4xl font-bold text-slate-900">Token Hub Dashboard</h1>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Dashboard HUB</h1>
             <p className="text-slate-600 mt-2">Manage your tokens and API access</p>
           </div>
           <div className="flex items-center gap-3">
@@ -847,6 +849,15 @@ const Dashboard = () => {
             >
               <Newspaper className="w-4 h-4" />
               NEWS
+            </Button>
+            <Button 
+              variant="default" 
+              size="lg"
+              onClick={() => setShowFAQPopup(true)}
+              className="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-4 py-2 flex items-center gap-2"
+            >
+              <HelpCircle className="w-4 h-4" />
+              FAQ
             </Button>
             <Button 
               variant="default" 
@@ -1591,6 +1602,11 @@ const Dashboard = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* FAQ Popup */}
+        {showFAQPopup && (
+          <FAQ onClose={() => setShowFAQPopup(false)} />
         )}
       </div>
     </main>

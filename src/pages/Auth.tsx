@@ -14,7 +14,7 @@ const Auth = () => {
   const isRecovery = useMemo(() => new URLSearchParams(window.location.search).get("type") === "recovery", []);
 
   useEffect(() => {
-    document.title = "Auth | Token Hub";
+    document.title = "Auth | HUB API";
     if (isRecovery) setMode("update");
 
     const { data: listener } = supabase.auth.onAuthStateChange((_e, session) => {
