@@ -49,8 +49,8 @@ Deno.serve(async (req: Request) => {
     const standardFee = 0.25
     const totalAmount = baseAmount + standardFee
 
-    if (!baseAmount || baseAmount < 1) {
-      return new Response(JSON.stringify({ error: 'amount_usd must be at least 1' }), {
+    if (!baseAmount || baseAmount < 1 || baseAmount > 20) {
+      return new Response(JSON.stringify({ error: 'amount_usd must be between 1 and 20' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })

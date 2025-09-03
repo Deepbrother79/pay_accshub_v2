@@ -57,13 +57,41 @@ Deno.serve(async (req)=>{
       });
     }
     // Validate token exists and belongs to user
-    const { data: tokenData, error: tokenError } = await supabase.from("tokens").select("id, user_id, credits").eq("token_string", body.token_string).eq("user_id", user.id).single();
+    const { data: tokenData, error: tokenError } = await supabase.from("tokens").select("id, user_id, credits, activated, locked").eq("token_string", body.token_string).eq("user_id", user.id).single();
     if (tokenError || !tokenData) {
       console.error("Token validation error:", tokenError);
       return new Response(JSON.stringify({
         error: "Token not found or access denied"
       }), {
         status: 404,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json"
+        }
+      });
+    }
+    
+    // Check if token is locked
+    if (tokenData.locked) {
+      return new Response(JSON.stringify({
+        error: "Token locked",
+        error_type: "locked"
+      }), {
+        status: 400,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json"
+        }
+      });
+    }
+    
+    // Check if token is not activated
+    if (!tokenData.activated) {
+      return new Response(JSON.stringify({
+        error: "Activate the token first",
+        error_type: "not_activated"
+      }), {
+        status: 400,
         headers: {
           ...corsHeaders,
           "Content-Type": "application/json"

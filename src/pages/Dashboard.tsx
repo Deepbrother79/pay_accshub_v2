@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Download, Plus, DollarSign, Coins, CreditCard, Users, RefreshCw, User, ShoppingCart, Newspaper, HelpCircle } from "lucide-react";
+import { Download, Plus, DollarSign, Coins, CreditCard, Users, RefreshCw, User, ShoppingCart, Newspaper, HelpCircle, Info } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import FAQ from "@/components/FAQ";
 
@@ -59,6 +59,7 @@ const Dashboard = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [txs, setTxs] = useState<CombinedTx[]>([]);
+  const [profileBalance, setProfileBalance] = useState<number>(0);
   const [flashingPaymentId, setFlashingPaymentId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshingTransactions, setIsRefreshingTransactions] = useState(false);
@@ -66,7 +67,7 @@ const Dashboard = () => {
   const [news, setNews] = useState<any[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
   const [showFAQPopup, setShowFAQPopup] = useState(false);
-  const [activeSection, setActiveSection] = useState<'manage' | 'funds' | 'orders' | 'payments' | 'generate' | 'refill' | null>(null);
+  const [activeSection, setActiveSection] = useState<'manage' | 'funds' | 'orders' | 'payments' | 'generate' | 'refill' | 'seller' | 'create-product' | 'manage-products' | 'generate-tokens-seller' | 'orders-seller' | 'balance-seller' | null>(null);
 
   const [topup, setTopup] = useState<string>("");
   const [topupMatic, setTopupMatic] = useState<string>("");
@@ -81,6 +82,7 @@ const Dashboard = () => {
   const [prefixInput, setPrefixInput] = useState<string>("");
   const [productSearch, setProductSearch] = useState<string>("");
   const [showProductDropdown, setShowProductDropdown] = useState(false);
+  const [buyerActivation, setBuyerActivation] = useState<boolean>(false);
   const productDropdownRef = useRef<HTMLDivElement>(null);
   
   // Refill Token states
@@ -136,6 +138,7 @@ const Dashboard = () => {
     setProductId('');
     setProductSearch('');
     setMode('usd');
+    setBuyerActivation(false);
   }, [type]);
 
   // Function to refresh transaction data
@@ -192,6 +195,9 @@ const Dashboard = () => {
         (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
       setTxs(combinedTxs);
+      
+      // Also refresh profile balance after refreshing transactions
+      await fetchUserProfile();
       
       toast({ title: 'Data refreshed successfully' });
     } catch (error) {
@@ -250,6 +256,9 @@ const Dashboard = () => {
       );
       setTxs(combinedTxs);
       
+      // Also refresh profile balance
+      await fetchUserProfile();
+      
       toast({ title: 'Orders history refreshed' });
     } catch (error) {
       console.error('Error refreshing transactions:', error);
@@ -274,10 +283,13 @@ const Dashboard = () => {
   }, []);
 
   useEffect(() => {
-    refreshTransactions();
+    if (userId) {
+      refreshTransactions();
+      fetchUserProfile();
+    }
 
-    // Setup realtime subscription for payments
-    const channel = supabase
+    // Setup realtime subscription for payments and profile changes
+    const paymentChannel = supabase
       .channel('payment_history_changes')
       .on(
         'postgres_changes',
@@ -300,12 +312,75 @@ const Dashboard = () => {
             setFlashingPaymentId(payload.new.id);
             setTimeout(() => setFlashingPaymentId(null), 2000);
           }
+          // Refresh profile balance when payment changes
+          fetchUserProfile();
+        }
+      )
+      .subscribe();
+
+    // Setup realtime subscription for profile balance changes
+    const profileChannel = supabase
+      .channel('profile_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${userId}`
+        },
+        (payload) => {
+          console.log('Profile update received:', payload);
+          if (payload.new && payload.new.balance !== undefined) {
+            setProfileBalance(payload.new.balance);
+          }
+        }
+      )
+      .subscribe();
+
+    // Setup realtime subscription for transactions (to refresh balance)
+    const transactionsChannel = supabase
+      .channel('transactions_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'transactions',
+          filter: `user_id=eq.${userId}`
+        },
+        (payload) => {
+          console.log('Transaction update received:', payload);
+          // Refresh profile balance when transaction changes
+          fetchUserProfile();
+        }
+      )
+      .subscribe();
+
+    // Setup realtime subscription for refill transactions (to refresh balance)
+    const refillTransactionsChannel = supabase
+      .channel('refill_transactions_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'refill_transactions',
+          filter: `user_id=eq.${userId}`
+        },
+        (payload) => {
+          console.log('Refill transaction update received:', payload);
+          // Refresh profile balance when refill transaction changes
+          fetchUserProfile();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(paymentChannel);
+      supabase.removeChannel(profileChannel);
+      supabase.removeChannel(transactionsChannel);
+      supabase.removeChannel(refillTransactionsChannel);
     };
   }, [userId]);
 
@@ -320,6 +395,10 @@ const Dashboard = () => {
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
       setPayments(pays || []);
+      
+      // Also refresh profile balance
+      await fetchUserProfile();
+      
       toast({ title: 'Payment history refreshed' });
     } catch (error) {
       toast({ title: 'Failed to refresh', description: 'Please try again' });
@@ -334,12 +413,39 @@ const Dashboard = () => {
   }, [payments]);
 
   const spentUsd = useMemo(() => (txs || []).reduce((s, t) => s + (t.usd_spent || 0), 0), [txs]);
-  const balanceUsd = useMemo(() => Math.max(0, confirmedUsd - spentUsd), [confirmedUsd, spentUsd]);
+  
+  // Use profile balance as primary source, fallback to calculated balance
+  const balanceUsd = useMemo(() => {
+    // If we have a profile balance from the database, use it
+    if (profileBalance > 0 || (profileBalance === 0 && userId)) {
+      return profileBalance;
+    }
+    // Fallback to calculated balance for backward compatibility
+    return Math.max(0, confirmedUsd - spentUsd);
+  }, [profileBalance, confirmedUsd, spentUsd, userId]);
+
+  // Calculate fee based on token count and buyer activation
+  const calculateFee = (tokenCount: number, isBuyerActivation: boolean) => {
+    if (!isBuyerActivation) {
+      return 0.0001; // Standard fee when buyer activation is OFF
+    }
+    
+    // Base fee for buyer activation ON
+    let fee = 0.0002;
+    
+    // Add 0.0001 for every 10 tokens beyond the first
+    if (tokenCount > 10) {
+      const additionalBatches = Math.floor((tokenCount - 1) / 10);
+      fee += additionalBatches * 0.0001;
+    }
+    
+    return fee;
+  };
 
   // Calculate total cost for token generation
   const totalCost = useMemo(() => {
     const count = parseInt(tokenCount) || 1;
-    const standardFee = 0.0001; // Fixed fee per generation request
+    const fee = calculateFee(count, buyerActivation && type === 'product');
     
     if (type === 'product') {
       if (!productId) return 0;
@@ -347,22 +453,27 @@ const Dashboard = () => {
       const prod = products.find(p => p.product_id === productId);
       if (!prod) return 0;
       
+      if (buyerActivation) {
+        // When buyer activation is ON, only charge the fee
+        return fee;
+      }
+      
       if (mode === 'usd') {
         const usdAmt = parseFloat(usd) || 0;
-        return (usdAmt * count) + standardFee;
+        return (usdAmt * count) + fee;
       } else {
         const creditsAmt = parseInt(credits) || 0;
         const usdPerCredit = Number(prod.value_credits_usd);
-        return (creditsAmt * usdPerCredit * count) + standardFee;
+        return (creditsAmt * usdPerCredit * count) + fee;
       }
     } else if (type === 'master') {
       // Master Token: costo diretto in USD
       const usdAmt = parseFloat(usd) || 0;
-      return (usdAmt * count) + standardFee;
+      return (usdAmt * count) + fee;
     }
     
     return 0;
-  }, [type, productId, products, tokenCount, mode, usd, credits]);
+  }, [type, productId, products, tokenCount, mode, usd, credits, buyerActivation]);
 
   // Calculate single token credits preview for Product Token + USD mode
   // Filter products based on search input
@@ -372,6 +483,31 @@ const Dashboard = () => {
       p.name.toLowerCase().includes(productSearch.toLowerCase())
     );
   }, [products, productSearch]);
+
+  // Function to fetch user profile and balance
+  const fetchUserProfile = async () => {
+    if (!userId) return;
+    
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('balance')
+        .eq('id', userId)
+        .single();
+      
+      if (error) {
+        console.error('Error fetching profile:', error);
+        // Fallback to calculated balance if profile doesn't exist
+        return;
+      }
+      
+      if (profile) {
+        setProfileBalance(profile.balance || 0);
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+    }
+  };
 
   const singleTokenCredits = useMemo(() => {
     if (type === 'product' && mode === 'usd' && productId && usd) {
@@ -405,7 +541,7 @@ const Dashboard = () => {
 
   const handleTopup = async () => {
     const amt = Number(topup);
-    if (!amt || amt < 12) return toast({ title: 'Minimum top-up is $12' });
+    if (!amt || amt < 15) return toast({ title: 'Minimum top-up is $15' });
     const { data, error } = await supabase.functions.invoke('create-invoice', { body: { amount_usd: amt } });
     if (error) return toast({ title: 'Failed to start payment', description: error.message });
     if (data?.payment_url) window.open(data.payment_url, '_blank');
@@ -415,7 +551,7 @@ const Dashboard = () => {
   const handleTopupMatic = async () => {
     const amt = Number(topupMatic);
     const standardFee = 0.25;
-    if (!amt || amt < 1) return toast({ title: 'Minimum top-up is $1' });
+    if (!amt || amt < 1 || amt > 20) return toast({ title: 'Amount must be between $1 and $20' });
     
     const totalAmountWithFee = amt + standardFee;
     const { data, error } = await supabase.functions.invoke('create-invoice-matic', { body: { amount_usd: amt } });
@@ -590,7 +726,25 @@ const Dashboard = () => {
       
       if (data?.error) {
         console.error('Function returned error:', data.error)
-        toast({ title: 'Error', description: data.error })
+        
+        // Handle specific error types with colored notifications
+        if (data.error_type === 'not_activated') {
+          toast({ 
+            title: 'Token Not Activated', 
+            description: 'Activate the token first',
+            variant: 'destructive',
+            className: 'bg-yellow-50 border-yellow-200 text-yellow-800'
+          })
+        } else if (data.error_type === 'locked') {
+          toast({ 
+            title: 'Token Locked', 
+            description: 'Token locked',
+            variant: 'destructive',
+            className: 'bg-red-50 border-red-200 text-red-800'
+          })
+        } else {
+          toast({ title: 'Error', description: data.error })
+        }
         return
       }
       
@@ -646,6 +800,9 @@ const Dashboard = () => {
         (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
       setTxs(combinedTxs);
+      
+      // Refresh profile balance after refill
+      await fetchUserProfile();
       
     } catch (err) {
       console.error('Unexpected refill error:', err)
@@ -732,7 +889,8 @@ const Dashboard = () => {
           tokenCount: count,
           prefixMode,
           prefixInput: prefix,
-          totalCost: currentTotalCost
+          totalCost: currentTotalCost,
+          buyerActivation: type === 'product' ? buyerActivation : false
         }
       });
 
@@ -762,6 +920,9 @@ const Dashboard = () => {
         mode: row.mode,
       })) as Tx[];
       setTxs(normalized);
+      
+      // Refresh profile balance after token generation
+      await fetchUserProfile();
 
     } catch (error: any) {
       toast({ title: 'Failed to generate tokens', description: error.message });
@@ -970,7 +1131,21 @@ const Dashboard = () => {
         {/* Main Action Buttons */}
         <Card>
           <CardContent className="pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <Button 
+                variant={activeSection === 'seller' || activeSection === 'create-product' || activeSection === 'manage-products' || activeSection === 'generate-tokens-seller' || activeSection === 'orders-seller' || activeSection === 'balance-seller' ? "default" : "outline"}
+                onClick={() => setActiveSection(activeSection === 'seller' ? null : 'seller')}
+                className={`h-20 flex flex-col items-center justify-center gap-2 ${
+                  activeSection === 'seller' || activeSection === 'create-product' || activeSection === 'manage-products' || activeSection === 'generate-tokens-seller' || activeSection === 'orders-seller' || activeSection === 'balance-seller'
+                    ? 'bg-yellow-400 hover:bg-yellow-500 text-white' 
+                    : 'hover:bg-yellow-50 hover:text-yellow-600'
+                }`}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Seller Dashboard
+              </Button>
               <Button 
                 variant={activeSection === 'manage' || activeSection === 'generate' || activeSection === 'refill' ? "default" : "outline"} 
                 onClick={() => setActiveSection(activeSection === 'manage' ? null : 'manage')}
@@ -1091,6 +1266,82 @@ const Dashboard = () => {
           </Card>
         )}
 
+        {/* Seller Dashboard Sub-buttons */}
+        {(activeSection === 'seller' || activeSection === 'create-product' || activeSection === 'manage-products' || activeSection === 'generate-tokens-seller' || activeSection === 'orders-seller' || activeSection === 'balance-seller') && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                <Button 
+                  variant={activeSection === 'create-product' ? "default" : "outline"}
+                  onClick={() => setActiveSection('create-product')}
+                  className={`h-12 flex items-center justify-center gap-2 text-sm ${
+                    activeSection === 'create-product' 
+                      ? 'bg-yellow-400 hover:bg-yellow-500 text-white' 
+                      : ''
+                  }`}
+                >
+                  <Plus className="w-4 h-4" />
+                  Create New Product
+                </Button>
+                <Button 
+                  variant={activeSection === 'manage-products' ? "default" : "outline"}
+                  onClick={() => setActiveSection('manage-products')}
+                  className={`h-12 flex items-center justify-center gap-2 text-sm ${
+                    activeSection === 'manage-products' 
+                      ? 'bg-yellow-400 hover:bg-yellow-500 text-white' 
+                      : ''
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
+                  </svg>
+                  Manage Products
+                </Button>
+                <Button 
+                  variant={activeSection === 'generate-tokens-seller' ? "default" : "outline"}
+                  onClick={() => setActiveSection('generate-tokens-seller')}
+                  className={`h-12 flex items-center justify-center gap-2 text-sm ${
+                    activeSection === 'generate-tokens-seller' 
+                      ? 'bg-yellow-400 hover:bg-yellow-500 text-white' 
+                      : ''
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                  </svg>
+                  Generate Tokens
+                </Button>
+                <Button 
+                  variant={activeSection === 'orders-seller' ? "default" : "outline"}
+                  onClick={() => setActiveSection('orders-seller')}
+                  className={`h-12 flex items-center justify-center gap-2 text-sm ${
+                    activeSection === 'orders-seller' 
+                      ? 'bg-yellow-400 hover:bg-yellow-500 text-white' 
+                      : ''
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  Orders
+                </Button>
+                <Button 
+                  variant={activeSection === 'balance-seller' ? "default" : "outline"}
+                  onClick={() => setActiveSection('balance-seller')}
+                  className={`h-12 flex items-center justify-center gap-2 text-sm ${
+                    activeSection === 'balance-seller' 
+                      ? 'bg-yellow-400 hover:bg-yellow-500 text-white' 
+                      : ''
+                  }`}
+                >
+                  <DollarSign className="w-4 h-4" />
+                  Balance
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Generate Tokens Section */}
         {activeSection === 'generate' && (
             <Card>
@@ -1113,6 +1364,32 @@ const Dashboard = () => {
                         </SelectContent>
                       </Select>
                     </div>
+
+                    {type === 'product' && (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor="buyerActivation" className="text-sm font-medium">
+                            Buyer Activation
+                          </Label>
+                          <div className="group relative">
+                            <Info className="w-4 h-4 text-gray-400 cursor-help" />
+                            <div className="absolute left-6 top-0 w-80 p-3 bg-black text-white text-xs rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+                              If this feature is selected, the token will be activated by the buyer on the HUB API Dashboard, and the cost will be deducted from the user's balance at that moment. <span className="text-red-400">If there are not sufficient funds, the token cannot be activated.</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="buyerActivation"
+                            checked={buyerActivation}
+                            onCheckedChange={setBuyerActivation}
+                          />
+                          <Label htmlFor="buyerActivation" className="text-sm">
+                            {buyerActivation ? 'ON' : 'OFF'}
+                          </Label>
+                        </div>
+                      </div>
+                    )}
 
                     {type === 'product' && (
                       <div className="space-y-2" ref={productDropdownRef}>
@@ -1261,8 +1538,14 @@ const Dashboard = () => {
                           id="credits"
                           type="number"
                           min="1"
+                          max="999999"
                           value={credits}
-                          onChange={(e) => setCredits(e.target.value)}
+                          onChange={(e) => {
+                            const value = parseInt(e.target.value) || 0;
+                            if (value <= 999999) {
+                              setCredits(e.target.value);
+                            }
+                          }}
                           placeholder="100"
                         />
                       </div>
@@ -1300,17 +1583,68 @@ const Dashboard = () => {
 
                 <div className="flex items-center justify-between">
                   <div>
-                    {type === 'product' && mode === 'usd' && singleTokenCredits > 0 && (
+                    {type === 'product' && mode === 'usd' && singleTokenCredits > 0 && !buyerActivation && (
                       <div className="text-md font-medium text-blue-600 mb-2">
                         Single Token credits: {singleTokenCredits.toLocaleString()} Credits
                       </div>
                     )}
-                    <div className="text-lg font-semibold">
-                      {parseInt(tokenCount) || 1} token(s) × ${((totalCost - 0.0001) / (parseInt(tokenCount) || 1)).toFixed(6)} + $0.0001 fee
-                    </div>
-                    <div className="text-xl font-bold text-green-600">
-                      Total Cost: ${totalCost.toFixed(6)}
-                    </div>
+                    
+                    {(() => {
+                      const count = parseInt(tokenCount) || 1;
+                      const fee = calculateFee(count, buyerActivation && type === 'product');
+                      
+                      if (type === 'product' && buyerActivation) {
+                        // Buyer Activation ON - show different format
+                        if (mode === 'usd') {
+                          const usdAmt = parseFloat(usd) || 0;
+                          const totalValue = usdAmt * count;
+                          return (
+                            <>
+                              <div className="text-lg font-semibold">
+                                {count} token(s) × ${usdAmt.toFixed(6)} + ${fee.toFixed(4)} fee
+                              </div>
+                              <div className="text-xl font-bold text-blue-600 mb-1">
+                                Total Value: ${totalValue.toFixed(6)}
+                              </div>
+                              <div className="text-xl font-bold text-green-600">
+                                Total Cost: ${fee.toFixed(4)}
+                              </div>
+                            </>
+                          );
+                        } else {
+                          const creditsAmt = parseInt(credits) || 0;
+                          const prod = products.find(p => p.product_id === productId);
+                          const usdPerCredit = Number(prod?.value_credits_usd || 0);
+                          const totalValue = creditsAmt * usdPerCredit * count;
+                          return (
+                            <>
+                              <div className="text-lg font-semibold">
+                                {count} token(s) × {creditsAmt} credits + ${fee.toFixed(4)} fee
+                              </div>
+                              <div className="text-xl font-bold text-blue-600 mb-1">
+                                Total Value: ${totalValue.toFixed(6)}
+                              </div>
+                              <div className="text-xl font-bold text-green-600">
+                                Total Cost: ${fee.toFixed(4)}
+                              </div>
+                            </>
+                          );
+                        }
+                      } else {
+                        // Standard format (Buyer Activation OFF or Master Token)
+                        const tokenCost = (totalCost - fee) / count;
+                        return (
+                          <>
+                            <div className="text-lg font-semibold">
+                              {count} token(s) × ${tokenCost.toFixed(6)} + ${fee.toFixed(4)} fee
+                            </div>
+                            <div className="text-xl font-bold text-green-600">
+                              Total Cost: ${totalCost.toFixed(6)}
+                            </div>
+                          </>
+                        );
+                      }
+                    })()}
                   </div>
                   <Button 
                     onClick={handleGenerate}
@@ -1489,9 +1823,17 @@ const Dashboard = () => {
 
         {/* Add Funds Section */}
         {activeSection === 'funds' && (
+          <div className="space-y-6">
+            {/* Multi-Crypto Payment Card */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg font-medium text-black">Top up Balance</CardTitle>
+                <CardTitle className="text-lg font-medium text-black flex items-center gap-2">
+                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                  </svg>
+                  Multi-Cryptocurrency Payment
+                </CardTitle>
+                <CardDescription>Accept payments in Bitcoin, Litecoin, USDT, USDC, and Monero</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex gap-4 items-end">
@@ -1500,7 +1842,7 @@ const Dashboard = () => {
                     <Input
                       id="topupAmount"
                       type="number"
-                      min="12"
+                      min="15"
                       step="0.01"
                       value={topup}
                       onChange={handleTopupChange}
@@ -1508,7 +1850,7 @@ const Dashboard = () => {
                     />
                   </div>
                   <div className="flex items-center gap-4">
-                    <Button onClick={handleTopup} disabled={!topup || parseFloat(topup) < 12}>
+                    <Button onClick={handleTopup} disabled={!topup || parseFloat(topup) < 15}>
                       Add Funds
                     </Button>
                     <div className="flex items-center gap-2 text-slate-600 text-sm font-medium">
@@ -1520,49 +1862,61 @@ const Dashboard = () => {
                     </div>
                   </div>
                 </div>
-                <p className="text-sm text-slate-600 mt-2">Minimum top-up amount is $12.00</p>
-
-                {/* USDT/Polygon Section */}
-                <div className="mt-6 border-t pt-6">
-                  <div className="flex gap-4 items-end">
-                    <div className="w-48">
-                      <Label htmlFor="topupMaticAmount">Amount (USD)</Label>
-                      <Input
-                        id="topupMaticAmount"
-                        type="number"
-                        min="1"
-                        step="0.01"
-                        value={topupMatic}
-                        onChange={handleTopupMaticChange}
-                        placeholder="25.00"
-                      />
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <Button onClick={handleTopupMatic} disabled={!topupMatic || parseFloat(topupMatic) < 1}>
-                        Add Funds
-                      </Button>
-                      <div className="flex items-center gap-2 text-slate-600 text-sm font-medium">
-                        <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full">USDT/Polygon(Matic)</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-sm text-slate-600 mt-2 space-y-1">
-                    <p>Minimum top-up amount is $1.00</p>
-                    <p>Standard fees: $0.25</p>
-                    {topupMatic && parseFloat(topupMatic) >= 1 && (
-                      <div className="bg-blue-50 p-3 rounded-lg mt-2">
-                        <p className="text-sm font-medium text-blue-900">Payment Summary:</p>
-                        <p className="text-sm text-blue-700">Base amount: ${parseFloat(topupMatic).toFixed(2)}</p>
-                        <p className="text-sm text-blue-700">Standard fee: $0.25</p>
-                        <p className="text-sm font-bold text-blue-900">Total to pay: ${(parseFloat(topupMatic) + 0.25).toFixed(2)}</p>
-                        <p className="text-xs text-blue-600 mt-1">You will receive ${parseFloat(topupMatic).toFixed(2)} in your balance</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
+                <p className="text-sm text-slate-600 mt-2">Minimum top-up amount is $15.00</p>
               </CardContent>
             </Card>
+
+            {/* USDT/Polygon Payment Card */}
+            <Card className="border-green-200">
+              <CardHeader>
+                <CardTitle className="text-lg font-medium text-black flex items-center gap-2">
+                  <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  Fast USDT Payment (Polygon Network)
+                </CardTitle>
+                <CardDescription>Lower fees • Faster transactions • Minimum $1 deposit</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-4 items-end">
+                  <div className="w-48">
+                    <Label htmlFor="topupMaticAmount">Amount (USD)</Label>
+                    <Input
+                      id="topupMaticAmount"
+                      type="number"
+                      min="1"
+                      max="20"
+                      step="0.01"
+                      value={topupMatic}
+                      onChange={handleTopupMaticChange}
+                      placeholder="10.00"
+                    />
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <Button onClick={handleTopupMatic} disabled={!topupMatic || parseFloat(topupMatic) < 1 || parseFloat(topupMatic) > 20}>
+                      Add Funds
+                    </Button>
+                    <div className="flex items-center gap-2 text-slate-600 text-sm font-medium">
+                      <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full">USDT/Polygon(Matic)</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-sm text-slate-600 mt-2 space-y-1">
+                  <p>Minimum top-up amount is $1.00 - Max $20</p>
+                  <p>Standard fees: $0.25</p>
+                  {topupMatic && parseFloat(topupMatic) >= 1 && (
+                    <div className="bg-blue-50 p-3 rounded-lg mt-2">
+                      <p className="text-sm font-medium text-blue-900">Payment Summary:</p>
+                      <p className="text-sm text-blue-700">Base amount: ${parseFloat(topupMatic).toFixed(2)}</p>
+                      <p className="text-sm text-blue-700">Standard fee: $0.25</p>
+                      <p className="text-sm font-bold text-blue-900">Total to pay: ${(parseFloat(topupMatic) + 0.25).toFixed(2)}</p>
+                      <p className="text-xs text-blue-600 mt-1">You will receive ${parseFloat(topupMatic).toFixed(2)} in your balance</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {/* Orders Section */}
@@ -1791,6 +2145,67 @@ const Dashboard = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Seller Dashboard Sections */}
+        {activeSection === 'create-product' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Create New Product</CardTitle>
+              <CardDescription>Add a new product to your catalog</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-center text-slate-500 py-8">Create New Product functionality coming soon...</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {activeSection === 'manage-products' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Manage Products</CardTitle>
+              <CardDescription>Edit and manage your existing products</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-center text-slate-500 py-8">Manage Products functionality coming soon...</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {activeSection === 'generate-tokens-seller' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Generate Tokens (Seller)</CardTitle>
+              <CardDescription>Generate tokens for your products as a seller</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-center text-slate-500 py-8">Seller Token Generation functionality coming soon...</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {activeSection === 'orders-seller' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Orders (Seller)</CardTitle>
+              <CardDescription>View and manage your product orders</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-center text-slate-500 py-8">Seller Orders functionality coming soon...</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {activeSection === 'balance-seller' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Balance (Seller)</CardTitle>
+              <CardDescription>View your seller earnings and balance</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-center text-slate-500 py-8">Seller Balance functionality coming soon...</p>
+            </CardContent>
+          </Card>
         )}
 
         {/* FAQ Popup */}

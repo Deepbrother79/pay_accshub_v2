@@ -86,13 +86,15 @@ Deno.serve(async (req)=>{
         }
       });
     }
-    // Fetch token data
+    // Fetch token data including activation and lock status
     const { data: tokenData, error: tokenError } = await supabase.from('tokens').select(`
         id,
         user_id,
         product_id,
         credits,
-        batch_tx_id
+        batch_tx_id,
+        activated,
+        locked
       `).eq('token_string', token_string).eq('user_id', user.id).single();
     if (tokenError || !tokenData) {
       return new Response(JSON.stringify({
@@ -100,6 +102,36 @@ Deno.serve(async (req)=>{
         error: 'Token not found or not owned by user'
       }), {
         status: 404,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+    
+    // Check if token is locked
+    if (tokenData.locked) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Token locked',
+        error_type: 'locked'
+      }), {
+        status: 400,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+    
+    // Check if token is not activated
+    if (!tokenData.activated) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Activate the token first',
+        error_type: 'not_activated'
+      }), {
+        status: 400,
         headers: {
           ...corsHeaders,
           'Content-Type': 'application/json'

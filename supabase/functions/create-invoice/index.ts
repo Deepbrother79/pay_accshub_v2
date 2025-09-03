@@ -47,8 +47,8 @@ Deno.serve(async (req: Request) => {
     const { amount_usd } = await req.json().catch(() => ({}))
     const amount = Number(amount_usd)
 
-    if (!amount || amount < 12) {
-      return new Response(JSON.stringify({ error: 'amount_usd must be at least 12' }), {
+    if (!amount || amount < 15) {
+      return new Response(JSON.stringify({ error: 'amount_usd must be at least 15' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })

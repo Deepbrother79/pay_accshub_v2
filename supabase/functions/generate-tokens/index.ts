@@ -9,8 +9,26 @@ const randString = (len = 15)=>{
   for(let i = 0; i < len; i++)s += chars.charAt(Math.floor(Math.random() * chars.length));
   return s;
 };
+
+// Calculate fee based on token count and buyer activation
+const calculateFee = (tokenCount, isBuyerActivation) => {
+  if (!isBuyerActivation) {
+    return 0.0001; // Standard fee when buyer activation is OFF
+  }
+  
+  // Base fee for buyer activation ON
+  let fee = 0.0002;
+  
+  // Add 0.0001 for every 10 tokens beyond the first
+  if (tokenCount > 10) {
+    const additionalBatches = Math.floor((tokenCount - 1) / 10);
+    fee += additionalBatches * 0.0001;
+  }
+  
+  return fee;
+};
 // Funzione helper per inviare i token alla table esterna HUB_API
-const sendTokensToHub = async (tokens, type, productName = null)=>{
+const sendTokensToHub = async (tokens, type, productName = null, activated = true)=>{
   try {
     const hubUrl = Deno.env.get('HUB_API_URL');
     const hubServiceKey = Deno.env.get('HUB_API_SERVICE_ROLE_KEY');
@@ -26,7 +44,8 @@ const sendTokensToHub = async (tokens, type, productName = null)=>{
           product_id: token.product_id,
           credits: token.credits,
           name: productName,
-          Note: null
+          Note: null,
+          activated: activated
         }));
       const { error: hubError } = await hubSupabase.from('tokens').insert(hubTokens);
       if (hubError) {
@@ -78,13 +97,14 @@ Deno.serve(async (req)=>{
         }
       });
     }
-    const { type, productId, usd, credits, mode, tokenCount, prefixMode, prefixInput, totalCost } = await req.json();
+    const { type, productId, usd, credits, mode, tokenCount, prefixMode, prefixInput, totalCost, buyerActivation } = await req.json();
     console.log('Token generation request:', {
       type,
       productId,
       tokenCount,
       mode,
-      totalCost
+      totalCost,
+      buyerActivation
     });
     // Validazione campi obbligatori
     if (type === 'product') {
@@ -140,17 +160,48 @@ Deno.serve(async (req)=>{
         });
       }
     }
-    // Verify user balance
-    const { data: payments } = await supabase.from('payment_history').select('amount_usd,status').eq('user_id', user.id);
-    const { data: transactions } = await supabase.from('transactions').select('usd_spent').eq('user_id', user.id);
-    const confirmedUsd = (payments || []).filter((p)=>[
-        'finished',
-        'confirmed',
-        'completed',
-        'paid'
-      ].includes((p.status || '').toLowerCase())).reduce((sum, p)=>sum + (p.amount_usd || 0), 0);
-    const spentUsd = (transactions || []).reduce((s, t)=>s + (t.usd_spent || 0), 0);
-    const balanceUsd = Math.max(0, confirmedUsd - spentUsd);
+    // Verify user balance - try to get from profiles table first
+    let balanceUsd = 0;
+    
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('balance')
+        .eq('id', user.id)
+        .single();
+      
+      if (profile && profile.balance !== null) {
+        balanceUsd = profile.balance;
+      } else {
+        // Fallback to calculated balance if profile doesn't exist or balance is null
+        console.log('Profile not found or balance null, calculating balance dynamically');
+        const { data: payments } = await supabase.from('payment_history').select('amount_usd,status').eq('user_id', user.id);
+        const { data: transactions } = await supabase.from('transactions').select('usd_spent').eq('user_id', user.id);
+        const { data: refillTransactions } = await supabase.from('refill_transactions').select('usd_spent').eq('user_id', user.id);
+        
+        const confirmedUsd = (payments || []).filter((p)=>[
+            'finished',
+            'confirmed',
+            'completed',
+            'paid'
+          ].includes((p.status || '').toLowerCase())).reduce((sum, p)=>sum + (p.amount_usd || 0), 0);
+        const spentUsd = (transactions || []).reduce((s, t)=>s + (t.usd_spent || 0), 0) + 
+                         (refillTransactions || []).reduce((s, t)=>s + (t.usd_spent || 0), 0);
+        balanceUsd = Math.max(0, confirmedUsd - spentUsd);
+      }
+    } catch (error) {
+      console.error('Error fetching user balance:', error);
+      return new Response(JSON.stringify({
+        error: 'Failed to verify user balance'
+      }), {
+        status: 500,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+    
     if (totalCost > balanceUsd) {
       return new Response(JSON.stringify({
         error: 'Insufficient balance'
@@ -162,6 +213,12 @@ Deno.serve(async (req)=>{
         }
       });
     }
+    // Determine activation status - false if buyerActivation is ON for product tokens
+    const activated = !(type === 'product' && buyerActivation);
+    
+    // Calculate the actual fee based on token count and buyer activation
+    const calculatedFee = calculateFee(tokenCount, type === 'product' && buyerActivation);
+    
     let prefix = prefixMode === 'auto' ? randString(4) : prefixInput.trim();
     let creditsPerToken = 0;
     let totalCredits = 0;
@@ -207,9 +264,10 @@ Deno.serve(async (req)=>{
       value_credits_usd_label: valueLabel,
       token_count: tokenCount,
       mode: type === 'product' ? mode : 'usd',
-      fee_usd: 0.0001,
+      fee_usd: calculatedFee,
       credits_per_token: creditsPerToken,
-      total_credits: totalCredits
+      total_credits: totalCredits,
+      activated: activated
     }).select().single();
     if (txError) {
       console.error('Transaction error:', txError);
@@ -233,7 +291,8 @@ Deno.serve(async (req)=>{
         product_id: type === 'product' ? productId : null,
         token_string: tokenString,
         credits: creditsPerToken,
-        token_type: type // MODIFICA: Aggiungi il tipo di token
+        token_type: type,
+        activated: activated
       });
     }
     const { error: tokensError } = await supabase.from('tokens').insert(tokens);
@@ -250,16 +309,18 @@ Deno.serve(async (req)=>{
       });
     }
     // Invia i token alla table esterna HUB_API
-    const hubSuccess = await sendTokensToHub(tokens, type, productName);
+    const hubSuccess = await sendTokensToHub(tokens, type, productName, activated);
     if (!hubSuccess) {
       console.warn('Failed to send tokens to HUB, but local tokens were created successfully');
     }
-    console.log(`Successfully generated ${tokenCount} tokens for user ${user.id}`);
+    console.log(`Successfully generated ${tokenCount} tokens for user ${user.id} - Activated: ${activated}`);
     return new Response(JSON.stringify({
       success: true,
-      message: `${tokenCount} tokens generated successfully`,
+      message: `${tokenCount} tokens generated successfully${activated ? '' : ' (pending buyer activation)'}`,
       transactionId: txData.id,
-      hubSyncStatus: hubSuccess ? 'success' : 'failed'
+      hubSyncStatus: hubSuccess ? 'success' : 'failed',
+      activated: activated,
+      fee: calculatedFee
     }), {
       headers: {
         ...corsHeaders,
