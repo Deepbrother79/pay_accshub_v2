@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -67,8 +66,10 @@ const Dashboard = () => {
   const [news, setNews] = useState<any[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
   const [showFAQPopup, setShowFAQPopup] = useState(false);
+  const [activeSection, setActiveSection] = useState<'manage' | 'funds' | 'orders' | 'payments' | 'generate' | 'refill' | null>(null);
 
   const [topup, setTopup] = useState<string>("");
+  const [topupMatic, setTopupMatic] = useState<string>("");
 
   const [type, setType] = useState<'product'|'master'>('product');
   const [productId, setProductId] = useState<string>("");
@@ -393,10 +394,31 @@ const Dashboard = () => {
     }
   };
 
+  // Funzione per gestire l'input del top-up MATIC (solo numeri e decimali, minimo 1)
+  const handleTopupMaticChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    // Permetti solo numeri e un punto decimale
+    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+      setTopupMatic(value);
+    }
+  };
+
   const handleTopup = async () => {
     const amt = Number(topup);
-    if (!amt || amt < 1) return toast({ title: 'Minimum top-up is $1' });
+    if (!amt || amt < 12) return toast({ title: 'Minimum top-up is $12' });
     const { data, error } = await supabase.functions.invoke('create-invoice', { body: { amount_usd: amt } });
+    if (error) return toast({ title: 'Failed to start payment', description: error.message });
+    if (data?.payment_url) window.open(data.payment_url, '_blank');
+    else toast({ title: 'Invoice created', description: 'Complete payment to add funds.' });
+  };
+
+  const handleTopupMatic = async () => {
+    const amt = Number(topupMatic);
+    const standardFee = 0.25;
+    if (!amt || amt < 1) return toast({ title: 'Minimum top-up is $1' });
+    
+    const totalAmountWithFee = amt + standardFee;
+    const { data, error } = await supabase.functions.invoke('create-invoice-matic', { body: { amount_usd: amt } });
     if (error) return toast({ title: 'Failed to start payment', description: error.message });
     if (data?.payment_url) window.open(data.payment_url, '_blank');
     else toast({ title: 'Invoice created', description: 'Complete payment to add funds.' });
@@ -945,16 +967,132 @@ const Dashboard = () => {
           </Card>
         </div>
 
-        <Tabs defaultValue="generate" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="generate">Generate Tokens</TabsTrigger>
-            <TabsTrigger value="refill">Refill Token</TabsTrigger>
-            <TabsTrigger value="topup">Add Funds</TabsTrigger>
-            <TabsTrigger value="transactions">Orders</TabsTrigger>
-            <TabsTrigger value="payments">Payments</TabsTrigger>
-          </TabsList>
+        {/* Main Action Buttons */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Button 
+                variant={activeSection === 'manage' || activeSection === 'generate' || activeSection === 'refill' ? "default" : "outline"} 
+                onClick={() => setActiveSection(activeSection === 'manage' ? null : 'manage')}
+                className={`h-20 flex flex-col items-center justify-center gap-2 ${
+                  activeSection === 'manage' || activeSection === 'generate' || activeSection === 'refill'
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                    : 'hover:bg-blue-50 hover:text-blue-600'
+                }`}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
+                </svg>
+                Manage Tokens
+              </Button>
+              <Button 
+                variant={activeSection === 'funds' ? "default" : "outline"}
+                onClick={() => setActiveSection(activeSection === 'funds' ? null : 'funds')}
+                className={`h-20 flex flex-col items-center justify-center gap-2 ${
+                  activeSection === 'funds' 
+                    ? 'bg-green-600 hover:bg-green-700 text-white' 
+                    : 'hover:bg-green-50 hover:text-green-600'
+                }`}
+              >
+                <DollarSign className="w-6 h-6" />
+                Add Funds
+              </Button>
+              <Button 
+                variant={activeSection === 'orders' ? "default" : "outline"}
+                onClick={() => setActiveSection(activeSection === 'orders' ? null : 'orders')}
+                className={`h-20 flex flex-col items-center justify-center gap-2 ${
+                  activeSection === 'orders' 
+                    ? 'bg-orange-600 hover:bg-orange-700 text-white' 
+                    : 'hover:bg-orange-50 hover:text-orange-600'
+                }`}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+                Orders
+              </Button>
+              <Button 
+                variant={activeSection === 'payments' ? "default" : "outline"}
+                onClick={() => setActiveSection(activeSection === 'payments' ? null : 'payments')}
+                className={`h-20 flex flex-col items-center justify-center gap-2 ${
+                  activeSection === 'payments' 
+                    ? 'bg-purple-600 hover:bg-purple-700 text-white' 
+                    : 'hover:bg-purple-50 hover:text-purple-600'
+                }`}
+              >
+                <CreditCard className="w-6 h-6" />
+                Payment
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-          <TabsContent value="generate">
+        {/* Manage Tokens Sub-buttons */}
+        {(activeSection === 'manage' || activeSection === 'generate' || activeSection === 'refill') && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                <Button 
+                  variant={activeSection === 'generate' ? "default" : "outline"}
+                  onClick={() => setActiveSection('generate')}
+                  className={`h-12 flex items-center justify-center gap-2 text-sm ${
+                    activeSection === 'generate' 
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                      : ''
+                  }`}
+                >
+                  <Plus className="w-4 h-4" />
+                  Generate Token
+                </Button>
+                <Button 
+                  variant={activeSection === 'refill' ? "default" : "outline"}
+                  onClick={() => setActiveSection('refill')}
+                  className={`h-12 flex items-center justify-center gap-2 text-sm ${
+                    activeSection === 'refill' 
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                      : ''
+                  }`}
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Refill Token
+                </Button>
+                <Button 
+                  variant="outline"
+                  className="h-12 flex items-center justify-center gap-2 text-sm"
+                  disabled
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M21 12c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2s.9-2 2-2h14c1.1 0 2 .9 2 2z" />
+                  </svg>
+                  Activate Token
+                </Button>
+                <Button 
+                  variant="outline"
+                  className="h-12 flex items-center justify-center gap-2 text-sm"
+                  disabled
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                  </svg>
+                  Transfer Credits
+                </Button>
+                <Button 
+                  variant="outline"
+                  className="h-12 flex items-center justify-center gap-2 text-sm"
+                  disabled
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  Lock Token
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Generate Tokens Section */}
+        {activeSection === 'generate' && (
             <Card>
               <CardHeader>
                 <CardTitle>Generate New Tokens</CardTitle>
@@ -1185,9 +1323,10 @@ const Dashboard = () => {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
+        )}
 
-          <TabsContent value="refill">
+        {/* Refill Tokens Section */}
+        {activeSection === 'refill' && (
             <Card>
               <CardHeader>
                 <CardTitle>Refill Token</CardTitle>
@@ -1346,38 +1485,88 @@ const Dashboard = () => {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
+        )}
 
-          <TabsContent value="topup">
+        {/* Add Funds Section */}
+        {activeSection === 'funds' && (
             <Card>
               <CardHeader>
-                <CardTitle>Add Funds</CardTitle>
-                <CardDescription>Top up your account balance to generate more tokens</CardDescription>
+                <CardTitle className="text-lg font-medium text-black">Top up Balance</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex gap-4 items-end">
-                  <div className="flex-1">
+                  <div className="w-48">
                     <Label htmlFor="topupAmount">Amount (USD)</Label>
                     <Input
                       id="topupAmount"
                       type="number"
-                      min="1"
+                      min="12"
                       step="0.01"
                       value={topup}
                       onChange={handleTopupChange}
                       placeholder="25.00"
                     />
                   </div>
-                  <Button onClick={handleTopup} disabled={!topup || parseFloat(topup) < 1}>
-                    Add Funds
-                  </Button>
+                  <div className="flex items-center gap-4">
+                    <Button onClick={handleTopup} disabled={!topup || parseFloat(topup) < 12}>
+                      Add Funds
+                    </Button>
+                    <div className="flex items-center gap-2 text-slate-600 text-sm font-medium">
+                      <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded">BTC</span>
+                      <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded">LTC</span>
+                      <span className="px-2 py-1 bg-green-100 text-green-700 rounded">USDT</span>
+                      <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded">USDC</span>
+                      <span className="px-2 py-1 bg-black text-orange-500 rounded">XMR</span>
+                    </div>
+                  </div>
                 </div>
-                <p className="text-sm text-slate-600 mt-2">Minimum top-up amount is $1.00</p>
+                <p className="text-sm text-slate-600 mt-2">Minimum top-up amount is $12.00</p>
+
+                {/* USDT/Polygon Section */}
+                <div className="mt-6 border-t pt-6">
+                  <div className="flex gap-4 items-end">
+                    <div className="w-48">
+                      <Label htmlFor="topupMaticAmount">Amount (USD)</Label>
+                      <Input
+                        id="topupMaticAmount"
+                        type="number"
+                        min="1"
+                        step="0.01"
+                        value={topupMatic}
+                        onChange={handleTopupMaticChange}
+                        placeholder="25.00"
+                      />
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <Button onClick={handleTopupMatic} disabled={!topupMatic || parseFloat(topupMatic) < 1}>
+                        Add Funds
+                      </Button>
+                      <div className="flex items-center gap-2 text-slate-600 text-sm font-medium">
+                        <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full">USDT/Polygon(Matic)</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-sm text-slate-600 mt-2 space-y-1">
+                    <p>Minimum top-up amount is $1.00</p>
+                    <p>Standard fees: $0.25</p>
+                    {topupMatic && parseFloat(topupMatic) >= 1 && (
+                      <div className="bg-blue-50 p-3 rounded-lg mt-2">
+                        <p className="text-sm font-medium text-blue-900">Payment Summary:</p>
+                        <p className="text-sm text-blue-700">Base amount: ${parseFloat(topupMatic).toFixed(2)}</p>
+                        <p className="text-sm text-blue-700">Standard fee: $0.25</p>
+                        <p className="text-sm font-bold text-blue-900">Total to pay: ${(parseFloat(topupMatic) + 0.25).toFixed(2)}</p>
+                        <p className="text-xs text-blue-600 mt-1">You will receive ${parseFloat(topupMatic).toFixed(2)} in your balance</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
               </CardContent>
             </Card>
-          </TabsContent>
+        )}
 
-          <TabsContent value="transactions">
+        {/* Orders Section */}
+        {activeSection === 'orders' && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
@@ -1469,9 +1658,10 @@ const Dashboard = () => {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
+        )}
 
-          <TabsContent value="payments">
+        {/* Payments Section */}
+        {activeSection === 'payments' && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
@@ -1540,8 +1730,7 @@ const Dashboard = () => {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
-        </Tabs>
+        )}
 
         {/* News Popup - Simple Modal */}
         {showNewsPopup && (
@@ -1608,6 +1797,7 @@ const Dashboard = () => {
         {showFAQPopup && (
           <FAQ onClose={() => setShowFAQPopup(false)} />
         )}
+
       </div>
     </main>
   );

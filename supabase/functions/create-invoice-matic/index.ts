@@ -45,10 +45,12 @@ Deno.serve(async (req: Request) => {
     }
 
     const { amount_usd } = await req.json().catch(() => ({}))
-    const amount = Number(amount_usd)
+    const baseAmount = Number(amount_usd)
+    const standardFee = 0.25
+    const totalAmount = baseAmount + standardFee
 
-    if (!amount || amount < 12) {
-      return new Response(JSON.stringify({ error: 'amount_usd must be at least 12' }), {
+    if (!baseAmount || baseAmount < 1) {
+      return new Response(JSON.stringify({ error: 'amount_usd must be at least 1' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       })
@@ -56,7 +58,7 @@ Deno.serve(async (req: Request) => {
 
     const ipnUrl = `${SUPABASE_URL}/functions/v1/nowpayments-ipn`
     // Generate unique order_id to avoid conflicts
-    const orderId = `${user.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    const orderId = `matic_${user.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
     const npRes = await fetch('https://api.nowpayments.io/v1/invoice', {
       method: 'POST',
@@ -65,12 +67,13 @@ Deno.serve(async (req: Request) => {
         'x-api-key': NOWPAYMENTS_API_KEY,
       },
       body: JSON.stringify({
-        price_amount: amount,
+        price_amount: totalAmount,
         price_currency: 'USD',
+        pay_currency: 'usdtmatic',
         order_id: orderId,
         ipn_callback_url: ipnUrl,
-        is_fixed_rate: true,
-        is_fee_paid_by_user: true,
+        is_fixed_rate: false,
+        is_fee_paid_by_user: false,
       }),
     })
 
@@ -88,13 +91,14 @@ Deno.serve(async (req: Request) => {
     const payment_url = npJson?.payment_url ?? npJson?.invoice_url ?? null
 
     // Insert a pending record for the user with unique order_id
+    // Store only the base amount (without fee) for final crediting
     await supabase.from('payment_history').insert({
       user_id: user.id,
       order_id: orderId,
       status: 'pending',
-      amount_usd: amount,
+      amount_usd: baseAmount,
       currency: 'USD',
-      raw: npJson,
+      raw: { ...npJson, base_amount: baseAmount, fee_amount: standardFee, total_amount: totalAmount },
     })
 
     return new Response(JSON.stringify({ payment_id, payment_url }), {

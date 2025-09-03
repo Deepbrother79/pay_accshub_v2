@@ -232,7 +232,8 @@ Deno.serve(async (req)=>{
         user_id: user.id,
         product_id: type === 'product' ? productId : null,
         token_string: tokenString,
-        credits: creditsPerToken
+        credits: creditsPerToken,
+        token_type: type // MODIFICA: Aggiungi il tipo di token
       });
     }
     const { error: tokensError } = await supabase.from('tokens').insert(tokens);

@@ -1,4 +1,4 @@
-project_id = "raqwrslwuefyikijlbma"
+project_id = "szkwcgpogstbdlourvqv"
 
 [functions.nowpayments-ipn]
 verify_jwt = false

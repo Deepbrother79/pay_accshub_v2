@@ -74,13 +74,23 @@ Deno.serve(async (req: Request) => {
       .eq('order_id', order_id)
       .maybeSingle()
 
+    // Check if this is a MATIC payment (has matic_ prefix)
+    const isMaticPayment = order_id.startsWith('matic_')
+    let finalAmount = price_currency_norm === 'USD' ? price_amount : null
+    
+    // For MATIC payments, subtract the $0.25 fee from the credited amount
+    if (isMaticPayment && finalAmount !== null) {
+      const standardFee = 0.25
+      finalAmount = Math.max(0, finalAmount - standardFee)
+    }
+
     if (existing) {
       // Update existing payment record with the same order_id
       await supabase
         .from('payment_history')
         .update({
           status: payment_status,
-          amount_usd: price_currency_norm === 'USD' ? price_amount : null,
+          amount_usd: finalAmount,
           amount_crypto: actually_paid,
           currency: price_currency_norm,
           pay_currency: pay_currency_norm,
@@ -88,15 +98,16 @@ Deno.serve(async (req: Request) => {
         })
         .eq('order_id', order_id)
     } else {
-      // Extract user_id from order_id pattern (user_id_timestamp_random)
-      const userIdFromOrder = order_id.split('_')[0]
+      // Extract user_id from order_id pattern (user_id_timestamp_random or matic_user_id_timestamp_random)
+      const orderParts = order_id.split('_')
+      const userIdFromOrder = isMaticPayment ? orderParts[1] : orderParts[0]
       
       // Create new payment record only if it doesn't exist
       await supabase.from('payment_history').insert({
         user_id: userIdFromOrder,
         order_id: order_id,
         status: payment_status,
-        amount_usd: price_currency_norm === 'USD' ? price_amount : null,
+        amount_usd: finalAmount,
         amount_crypto: actually_paid,
         currency: price_currency_norm,
         pay_currency: pay_currency_norm,
